@@ -1,0 +1,36 @@
+:root {
+  font: 17px/1.5 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #202225;
+  background: #f7f7f2;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid rgba(50, 108, 99, 0.35);
+  outline-offset: 2px;
+}
+
+#root {
+  min-height: 100svh;
+}
