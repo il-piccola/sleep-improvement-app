@@ -1,8 +1,7 @@
 import type { SleepRecord } from '../../types/sleep'
 import type { RawHealthAutoExportRow } from './importTypes'
 import { normalizeStage } from './healthAutoExportJsonAuditor'
-
-const OVERLAP_THRESHOLD = 0.8
+import { resolveSleepSource } from '../source/resolveSleepSource'
 
 export function normalizeHealthAutoExportSleepRows(
   rows: RawHealthAutoExportRow[],
@@ -31,7 +30,19 @@ export function normalizeHealthAutoExportSleepRows(
     }
 
     const sourceName = getString(row.sourceName) ?? getString(row.source)
-    const sourceApp = sourceName && /withings/i.test(sourceName) ? 'Withings' : undefined
+    const deviceName = getString(row.deviceName)
+    const sourceBundleId = getString(row.sourceBundleId)
+    const sourceKind = getString(row.sourceKind)
+    const source = resolveSleepSource({
+      sourceApp: getString(row.sourceApp),
+      sourceName,
+      source: getString(row.source),
+      sourceKind,
+      deviceName,
+      sourceBundleId,
+      sourceFormat: 'health_auto_export_json',
+      sourceFile,
+    })
     const durationMinutes = Math.max(
       0,
       Math.round((endDate.getTime() - startDate.getTime()) / 60_000),
@@ -41,11 +52,13 @@ export function normalizeHealthAutoExportSleepRows(
       id:
         getString(row.id) ??
         getString(row.uuid) ??
-        createId('health_auto_export_json', sourceFile, start, end, originalValue, sourceName),
+        createId('health_auto_export_json', sourceFile, start, end, originalValue, source.sourceKey),
       value: stage,
       sourceFormat: 'health_auto_export_json',
       sourceFile,
-      sourceApp,
+      sourceKey: source.sourceKey,
+      sourceApp: source.sourceApp,
+      sourceLabel: source.sourceLabel,
       originalValue,
       start,
       end,
@@ -55,15 +68,17 @@ export function normalizeHealthAutoExportSleepRows(
       durationMinutes,
       hasStartDate: true,
       hasEndDate: true,
-      hasSource: Boolean(sourceName),
+      hasSource: Boolean(sourceName ?? deviceName ?? sourceBundleId ?? sourceKind),
       source: sourceName,
       sourceName,
-      sourceKind: sourceName ? 'present' : undefined,
+      deviceName,
+      sourceBundleId,
+      sourceKind: sourceKind ?? (sourceName ? 'present' : undefined),
     })
   })
 
   return {
-    records: dedupeRecords(records),
+    records,
     rejectedCount,
   }
 }
@@ -108,100 +123,15 @@ function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function sourcePriority(sourceApp: string | undefined): number {
-  const source = String(sourceApp ?? '').toLowerCase()
-
-  if (source.includes('withings')) return 100
-  if (source.includes('apple watch')) return 90
-  if (source.includes('iphone')) return 80
-  if (source.includes('zepp')) return 70
-  if (source.includes('mi fitness')) return 60
-  if (source.includes('vitalbook')) return 50
-  if (source.includes('熟睡')) return 40
-  return 10
-}
-
-function stageSpecificity(stage: SleepRecord['stage']): number {
-  if (stage === 'asleep_core' || stage === 'asleep_deep' || stage === 'asleep_rem') return 100
-  if (stage === 'awake') return 90
-  if (stage === 'asleep') return 70
-  if (stage === 'asleep_unspecified') return 60
-  if (stage === 'in_bed') return 20
-  return 0
-}
-
-function qualityScore(record: SleepRecord): number {
-  return sourcePriority(record.sourceApp) + stageSpecificity(record.stage)
-}
-
-function overlapRatio(candidate: SleepRecord, accepted: SleepRecord): number {
-  const candidateStart = Date.parse(candidate.start ?? '')
-  const candidateEnd = Date.parse(candidate.end ?? '')
-  const acceptedStart = Date.parse(accepted.start ?? '')
-  const acceptedEnd = Date.parse(accepted.end ?? '')
-
-  if (
-    !Number.isFinite(candidateStart) ||
-    !Number.isFinite(candidateEnd) ||
-    !Number.isFinite(acceptedStart) ||
-    !Number.isFinite(acceptedEnd)
-  ) {
-    return 0
-  }
-
-  const overlap = Math.max(
-    0,
-    Math.min(candidateEnd, acceptedEnd) - Math.max(candidateStart, acceptedStart),
-  )
-  const candidateDuration = candidateEnd - candidateStart
-  return candidateDuration > 0 ? overlap / candidateDuration : 0
-}
-
-function dedupeRecords(records: SleepRecord[]): SleepRecord[] {
-  const ordered = [...records].sort((left, right) => {
-    const qualityDiff = qualityScore(right) - qualityScore(left)
-
-    if (qualityDiff !== 0) {
-      return qualityDiff
-    }
-
-    return Date.parse(left.start ?? '') - Date.parse(right.start ?? '')
-  })
-  const accepted: SleepRecord[] = []
-  const seen = new Set<string>()
-
-  for (const record of ordered) {
-    const exactKey = [record.sourceApp ?? '', record.stage ?? '', record.start ?? '', record.end ?? ''].join('|')
-
-    if (seen.has(exactKey)) {
-      continue
-    }
-
-    seen.add(exactKey)
-
-    if (accepted.some((kept) => overlapRatio(record, kept) >= OVERLAP_THRESHOLD)) {
-      continue
-    }
-
-    accepted.push(record)
-  }
-
-  return accepted.sort(
-    (left, right) =>
-      Date.parse(left.start ?? '') - Date.parse(right.start ?? '') ||
-      Date.parse(left.end ?? '') - Date.parse(right.end ?? ''),
-  )
-}
-
 function createId(
   sourceFormat: string,
   sourceFile: string,
   start: string,
   end: string,
   originalValue: string,
-  sourceApp: string | undefined,
+  sourceKey: string,
 ): string {
-  const input = [sourceFormat, sourceFile, sourceApp ?? '', originalValue, start, end].join('|')
+  const input = [sourceFormat, sourceFile, sourceKey, originalValue, start, end].join('|')
   let hash = 0x811c9dc5
 
   for (let index = 0; index < input.length; index += 1) {

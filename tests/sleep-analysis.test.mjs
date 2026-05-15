@@ -9,9 +9,23 @@ const server = await createServer({
 })
 
 const { buildSleepBlocks } = await server.ssrLoadModule('/src/lib/analysis/buildSleepBlocks.ts')
+const {
+  calculateSleepBlockOverlapRatio,
+  detectSleepOverlaps,
+} = await server.ssrLoadModule('/src/lib/analysis/detectSleepOverlaps.ts')
 const { groupBySleepDay } = await server.ssrLoadModule('/src/lib/analysis/groupBySleepDay.ts')
 const { summarizeSleepDay } = await server.ssrLoadModule('/src/lib/analysis/summarizeSleepDay.ts')
 const { checkDataQuality } = await server.ssrLoadModule('/src/lib/analysis/checkDataQuality.ts')
+const { evaluateSourceQuality } = await server.ssrLoadModule('/src/lib/analysis/evaluateSourceQuality.ts')
+const { buildUnifiedSleepTimeline } = await server.ssrLoadModule('/src/lib/analysis/buildUnifiedSleepTimeline.ts')
+const { normalizeSleepFile } = await server.ssrLoadModule('/src/lib/import/normalizeSleepFile.ts')
+const {
+  loadStoredSourcePreferences,
+  removeSourcePreference,
+  saveStoredSourcePreferences,
+  toSourceUseSetting,
+  upsertSourcePreference,
+} = await server.ssrLoadModule('/src/lib/source/sourcePreferences.ts')
 
 try {
   await runAllCases()
@@ -33,7 +47,473 @@ async function runAllCases() {
   testAwakeAndInBedAreNotCounted()
   testSleepStagesAreCounted()
   testDataQuality()
+  testSourceQualityHighQuality()
+  testSourceQualityInBedOnly()
+  testSourceQualityManualFallback()
+  testSourceQualityUnknownButUsable()
+  testSourceQualityBrokenDuration()
+  testSourceQualityDetailedStages()
+  testFullDuplicateOverlapCandidate()
+  testPartialOverlapCandidate()
+  testIndependentSleepCandidate()
+  testMainSleepAndNapAreNotRemovedByOverlapDetection()
+  testSameSourceStagesAreNotOverlapCandidates()
+  testSameSourceStagesMergeWhenOtherSourceIsInterleaved()
+  testInBedDoesNotOverwriteActualSleep()
+  testUnifiedFullDuplicateIsNotDoubleCounted()
+  testUnifiedPartialOverlapIsPendingAndNotDoubleCounted()
+  testUnifiedNonOverlappingNapRemains()
+  testUnifiedInBedDoesNotOverwriteActualSleep()
+  testUnifiedInBedIsUsedOnlyWithoutActualSleep()
+  testUnifiedManualSourceIsNotPrimaryByDefault()
+  testUnifiedUnknownSourceCanRemainCandidate()
+  testUnifiedTotalDoesNotBecomeExcessive()
+  testUnifiedSplitSleepDoesNotDisappear()
+  testUnifiedIsolatedAwakeIsNotCounted()
+  testSourcePreferenceExclusionRecalculatesAnalysis()
+  testSourcePreferencePrimaryChangesUnifiedWinner()
+  testSourcePreferenceFallbackDoesNotOverwriteActualSleep()
+  testSourcePreferenceManualCanBePrimary()
+  testSourcePreferenceUnknownSourceCanBeExcluded()
+  testSourcePreferenceResetRemovesOverride()
+  testSourcePreferencePersistsAcrossReload()
+  testSourcePreferenceRecalculatesAnomalyChecks()
+  testSourcePreferencePartialOverlapStillNotDoubleCounted()
+  await testSourceKeyGeneration()
+  testNormalizeSleepFileAddsSourceKeys()
+  await testUnknownSourceKeysUseFileContext()
+  await testImportKeepsPartialOverlaps()
   await testHealthAutoExportImportFlow()
+  await testLegacyIndexedDbRecordsUseDerivedSourceKey()
+}
+
+function testFullDuplicateOverlapCandidate() {
+  const blocks = buildSleepBlocks([
+    sourceRecord('withings-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:10:00+09:00', '2026-05-15T06:50:00+09:00', 'asleep_core'),
+  ])
+  const report = detectSleepOverlaps(blocks)
+
+  assert.equal(report.fullDuplicateCandidates.length, 1)
+  assert.equal(report.partialOverlapCandidates.length, 0)
+  assert.ok(calculateSleepBlockOverlapRatio(blocks[0], blocks[1]) >= 0.8)
+}
+
+function testPartialOverlapCandidate() {
+  const blocks = buildSleepBlocks([
+    sourceRecord('source-a-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('source-b-late', 'apple_watch', 'Apple Watch', '2026-05-15T06:30:00+09:00', '2026-05-15T08:00:00+09:00', 'asleep_core'),
+  ])
+  const report = detectSleepOverlaps(blocks)
+
+  assert.equal(report.fullDuplicateCandidates.length, 0)
+  assert.equal(report.partialOverlapCandidates.length, 1)
+  assert.equal(report.pendingReviewCandidates.length, 1)
+}
+
+function testIndependentSleepCandidate() {
+  const blocks = buildSleepBlocks([
+    sourceRecord('source-a-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('source-b-nap', 'apple_watch', 'Apple Watch', '2026-05-15T13:00:00+09:00', '2026-05-15T13:30:00+09:00', 'asleep_core'),
+  ])
+  const report = detectSleepOverlaps(blocks)
+
+  assert.equal(report.fullDuplicateCandidates.length, 0)
+  assert.equal(report.partialOverlapCandidates.length, 0)
+  assert.equal(report.independentBlockIds.length, 2)
+}
+
+function testMainSleepAndNapAreNotRemovedByOverlapDetection() {
+  const records = [
+    sourceRecord('main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('nap', 'apple_watch', 'Apple Watch', '2026-05-15T13:00:00+09:00', '2026-05-15T13:30:00+09:00', 'asleep_core'),
+  ]
+  const blocks = buildSleepBlocks(records)
+  const report = detectSleepOverlaps(blocks)
+  const summaries = summarize(records)
+
+  assert.equal(blocks.length, 2)
+  assert.equal(report.independentBlockIds.length, 2)
+  assert.equal(summaries[0].blockCount, 2)
+  assert.equal(summaries[0].napCandidateCount, 1)
+}
+
+function testSameSourceStagesAreNotOverlapCandidates() {
+  const blocks = buildSleepBlocks([
+    sourceRecord('core', 'apple_watch', 'Apple Watch', '2026-05-15T03:00:00+09:00', '2026-05-15T04:00:00+09:00', 'asleep_core'),
+    sourceRecord('rem', 'apple_watch', 'Apple Watch', '2026-05-15T04:00:00+09:00', '2026-05-15T05:00:00+09:00', 'asleep_rem'),
+    sourceRecord('deep', 'apple_watch', 'Apple Watch', '2026-05-15T05:00:00+09:00', '2026-05-15T06:00:00+09:00', 'asleep_deep'),
+  ])
+  const report = detectSleepOverlaps(blocks)
+
+  assert.equal(blocks.length, 1)
+  assert.equal(report.fullDuplicateCandidates.length, 0)
+  assert.equal(report.partialOverlapCandidates.length, 0)
+}
+
+function testSameSourceStagesMergeWhenOtherSourceIsInterleaved() {
+  const blocks = buildSleepBlocks([
+    sourceRecord('core', 'apple_watch', 'Apple Watch', '2026-05-15T03:00:00+09:00', '2026-05-15T04:00:00+09:00', 'asleep_core'),
+    sourceRecord('withings-overlap', 'withings', 'Withings', '2026-05-15T03:30:00+09:00', '2026-05-15T03:45:00+09:00', 'asleep'),
+    sourceRecord('rem', 'apple_watch', 'Apple Watch', '2026-05-15T04:00:00+09:00', '2026-05-15T05:00:00+09:00', 'asleep_rem'),
+    sourceRecord('deep', 'apple_watch', 'Apple Watch', '2026-05-15T05:00:00+09:00', '2026-05-15T06:00:00+09:00', 'asleep_deep'),
+  ])
+  const appleBlocks = blocks.filter((block) => block.sourceKeys.includes('apple_watch'))
+  const report = detectSleepOverlaps(blocks)
+
+  assert.equal(appleBlocks.length, 1)
+  assert.equal(appleBlocks[0].durationMinutes, 180)
+  assert.equal(report.fullDuplicateCandidates.length, 1)
+}
+
+function testInBedDoesNotOverwriteActualSleep() {
+  const records = [
+    sourceRecord('inbed', 'iphone', 'iPhone', '2026-05-15T02:00:00+09:00', '2026-05-15T08:00:00+09:00', 'in_bed'),
+    sourceRecord('actual', 'apple_watch', 'Apple Watch', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep_core'),
+  ]
+  const blocks = buildSleepBlocks(records)
+  const report = detectSleepOverlaps(blocks)
+  const summary = summarizeOnlyDay(records)
+
+  assert.equal(blocks.length, 1)
+  assert.equal(blocks[0].sourceKeys[0], 'apple_watch')
+  assert.equal(report.fullDuplicateCandidates.length, 0)
+  assert.equal(summary.totalSleepMinutes, 240)
+}
+
+function testUnifiedFullDuplicateIsNotDoubleCounted() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('withings-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:10:00+09:00', '2026-05-15T06:50:00+09:00', 'asleep_core'),
+  ])
+
+  assert.equal(timeline.overlapReport.fullDuplicateCandidates.length, 1)
+  assert.equal(timeline.blocks.length, 1)
+  assert.ok(timeline.comparison.unifiedTotalSleepMinutes <= 240)
+  assert.equal(timeline.comparison.duplicateExcludedCount, 1)
+}
+
+function testUnifiedPartialOverlapIsPendingAndNotDoubleCounted() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('source-a-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('source-b-late', 'apple_watch', 'Apple Watch', '2026-05-15T06:30:00+09:00', '2026-05-15T08:00:00+09:00', 'asleep_core'),
+  ])
+
+  assert.equal(timeline.overlapReport.partialOverlapCandidates.length, 1)
+  assert.equal(timeline.comparison.pendingOverlapCount, 1)
+  assert.ok(timeline.comparison.unifiedTotalSleepMinutes < timeline.comparison.rawTotalSleepMinutes)
+  assert.ok(timeline.records.some((record) => record.unifiedStatus === 'pending_overlap'))
+}
+
+function testUnifiedNonOverlappingNapRemains() {
+  const summaries = summarizeUnified([
+    sourceRecord('main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('nap', 'apple_watch', 'Apple Watch', '2026-05-15T13:00:00+09:00', '2026-05-15T13:30:00+09:00', 'asleep_core'),
+  ])
+
+  assert.equal(summaries[0].totalSleepMinutes, 270)
+  assert.equal(summaries[0].blockCount, 2)
+  assert.equal(summaries[0].napCandidateCount, 1)
+}
+
+function testUnifiedInBedDoesNotOverwriteActualSleep() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('inbed', 'iphone', 'iPhone', '2026-05-15T02:00:00+09:00', '2026-05-15T08:00:00+09:00', 'in_bed'),
+    sourceRecord('actual', 'apple_watch', 'Apple Watch', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep_core'),
+  ])
+
+  assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 240)
+  assert.equal(timeline.comparison.fallbackUsedCount, 0)
+  assert.equal(timeline.blocks[0].sourceKeys[0], 'apple_watch')
+}
+
+function testUnifiedInBedIsUsedOnlyWithoutActualSleep() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('inbed-only', 'iphone', 'iPhone', '2026-05-15T02:00:00+09:00', '2026-05-15T08:00:00+09:00', 'in_bed'),
+  ])
+
+  assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 360)
+  assert.equal(timeline.comparison.fallbackUsedCount, 1)
+  assert.equal(timeline.blocks[0].isFallbackBlock, true)
+}
+
+function testUnifiedManualSourceIsNotPrimaryByDefault() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('manual-main', 'manual', '手入力', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:05:00+09:00', '2026-05-15T06:55:00+09:00', 'asleep_core'),
+  ])
+
+  assert.equal(timeline.blocks.length, 1)
+  assert.equal(timeline.blocks[0].sourceKeys[0], 'apple_watch')
+  assert.ok(timeline.records.some((record) => record.sourceKey === 'manual' && record.unifiedStatus === 'excluded_duplicate'))
+}
+
+function testUnifiedUnknownSourceCanRemainCandidate() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('unknown-rem', 'unknown_source:health_auto_export_json:sample_a_json', '不明ソース', '2026-05-15T01:00:00+09:00', '2026-05-15T02:00:00+09:00', 'asleep_rem'),
+    sourceRecord('unknown-core', 'unknown_source:health_auto_export_json:sample_a_json', '不明ソース', '2026-05-15T02:00:00+09:00', '2026-05-15T03:00:00+09:00', 'asleep_core'),
+    sourceRecord('unknown-deep', 'unknown_source:health_auto_export_json:sample_a_json', '不明ソース', '2026-05-15T03:00:00+09:00', '2026-05-15T04:00:00+09:00', 'asleep_deep'),
+  ])
+
+  assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 180)
+  assert.equal(timeline.blocks.length, 1)
+  assert.ok(timeline.blocks[0].sourceKeys[0].startsWith('unknown_source'))
+}
+
+function testUnifiedTotalDoesNotBecomeExcessive() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('withings-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:10:00+09:00', '2026-05-15T06:50:00+09:00', 'asleep_core'),
+    sourceRecord('iphone-inbed', 'iphone', 'iPhone', '2026-05-15T02:30:00+09:00', '2026-05-15T07:30:00+09:00', 'in_bed'),
+  ])
+
+  assert.ok(timeline.comparison.unifiedTotalSleepMinutes <= 240)
+}
+
+function testUnifiedSplitSleepDoesNotDisappear() {
+  const summaries = summarizeUnified([
+    sourceRecord('main', 'apple_watch', 'Apple Watch', '2026-05-15T00:00:00+09:00', '2026-05-15T04:00:00+09:00', 'asleep_core'),
+    sourceRecord('nap', 'apple_watch', 'Apple Watch', '2026-05-15T11:30:00+09:00', '2026-05-15T12:00:00+09:00', 'asleep_rem'),
+    sourceRecord('evening', 'apple_watch', 'Apple Watch', '2026-05-15T16:30:00+09:00', '2026-05-15T18:00:00+09:00', 'asleep_deep'),
+  ])
+
+  assert.equal(summaries[0].blockCount, 3)
+  assert.equal(summaries[0].napCandidateCount, 1)
+  assert.equal(summaries[0].eveningSleepCount, 1)
+}
+
+function testUnifiedIsolatedAwakeIsNotCounted() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('awake', 'apple_watch', 'Apple Watch', '2026-05-15T01:00:00+09:00', '2026-05-15T01:30:00+09:00', 'awake'),
+    sourceRecord('sleep', 'apple_watch', 'Apple Watch', '2026-05-15T02:00:00+09:00', '2026-05-15T06:00:00+09:00', 'asleep_core'),
+  ])
+
+  assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 240)
+  assert.equal(timeline.blocks.length, 1)
+  assert.ok(timeline.records.some((record) => record.id === 'awake' && record.unifiedStatus === 'support'))
+}
+
+function testSourcePreferenceExclusionRecalculatesAnalysis() {
+  const records = [
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T02:00:00+09:00', '2026-05-15T06:00:00+09:00', 'asleep_core'),
+    sourceRecord('nap', 'withings', 'Withings', '2026-05-15T13:00:00+09:00', '2026-05-15T13:30:00+09:00', 'asleep'),
+  ]
+  const before = buildUnifiedSleepTimeline(records)
+  const after = buildUnifiedSleepTimeline(records, {}, {
+    apple_watch: { sourceKey: 'apple_watch', use: 'ignored', priority: 1 },
+  })
+
+  assert.equal(before.comparison.unifiedTotalSleepMinutes, 270)
+  assert.equal(after.comparison.unifiedTotalSleepMinutes, 30)
+  assert.ok(after.records.some((record) => record.sourceKey === 'apple_watch' && record.unifiedStatus === 'ignored'))
+}
+
+function testSourcePreferencePrimaryChangesUnifiedWinner() {
+  const records = [
+    sourceRecord('withings-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:10:00+09:00', '2026-05-15T06:50:00+09:00', 'asleep_core'),
+  ]
+  const automatic = buildUnifiedSleepTimeline(records)
+  const configured = buildUnifiedSleepTimeline(records, {}, {
+    withings: { sourceKey: 'withings', use: 'primary', priority: 1 },
+    apple_watch: { sourceKey: 'apple_watch', use: 'secondary', priority: 2 },
+  })
+
+  assert.equal(automatic.blocks[0].sourceKeys[0], 'apple_watch')
+  assert.equal(configured.blocks[0].sourceKeys[0], 'withings')
+}
+
+function testSourcePreferenceFallbackDoesNotOverwriteActualSleep() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('manual-main', 'manual', '手入力', '2026-05-15T02:00:00+09:00', '2026-05-15T08:00:00+09:00', 'asleep'),
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep_core'),
+  ], {}, {
+    manual: { sourceKey: 'manual', use: 'fallback', priority: 1 },
+    apple_watch: { sourceKey: 'apple_watch', use: 'primary', priority: 2 },
+  })
+
+  assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 240)
+  assert.equal(timeline.blocks[0].sourceKeys[0], 'apple_watch')
+}
+
+function testSourcePreferenceManualCanBePrimary() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('manual-main', 'manual', '手入力', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:05:00+09:00', '2026-05-15T06:55:00+09:00', 'asleep_core'),
+  ], {}, {
+    manual: { sourceKey: 'manual', use: 'primary', priority: 1 },
+    apple_watch: { sourceKey: 'apple_watch', use: 'secondary', priority: 2 },
+  })
+
+  assert.equal(timeline.blocks.length, 1)
+  assert.equal(timeline.blocks[0].sourceKeys[0], 'manual')
+}
+
+function testSourcePreferenceUnknownSourceCanBeExcluded() {
+  const sourceKey = 'unknown_source:health_auto_export_json:file_a_json'
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('unknown-core', sourceKey, '不明ソース', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep_core'),
+  ], {}, {
+    [sourceKey]: { sourceKey, use: 'ignored', priority: 1 },
+  })
+
+  assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 0)
+  assert.ok(timeline.records.every((record) => record.unifiedStatus === 'ignored'))
+}
+
+function testSourcePreferenceResetRemovesOverride() {
+  const preferences = upsertSourcePreference({}, 'apple_watch', { use: 'ignored', priority: 1 })
+  const reset = removeSourcePreference(preferences, 'apple_watch')
+
+  assert.equal(preferences.apple_watch.use, 'ignored')
+  assert.equal(reset.apple_watch, undefined)
+  assert.equal(toSourceUseSetting('ignore'), 'ignored')
+}
+
+function testSourcePreferencePersistsAcrossReload() {
+  const storage = createMemoryStorage()
+  const preferences = {
+    apple_watch: { sourceKey: 'apple_watch', use: 'primary', priority: 2 },
+    manual: { sourceKey: 'manual', use: 'fallback', priority: 3 },
+  }
+
+  saveStoredSourcePreferences(preferences, storage)
+  const loaded = loadStoredSourcePreferences(storage)
+
+  assert.deepEqual(loaded, preferences)
+}
+
+function testSourcePreferenceRecalculatesAnomalyChecks() {
+  const records = [
+    sourceRecord('watch-main', 'apple_watch', 'Apple Watch', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep_core'),
+    sourceRecord('nap', 'withings', 'Withings', '2026-05-15T13:00:00+09:00', '2026-05-15T13:30:00+09:00', 'asleep'),
+  ]
+  const before = buildUnifiedSleepTimeline(records)
+  const after = buildUnifiedSleepTimeline(records, {}, {
+    withings: { sourceKey: 'withings', use: 'ignored', priority: 1 },
+  })
+
+  assert.equal(before.anomalyWarnings.length, 0)
+  assert.ok(after.anomalyWarnings.some((warning) => warning.includes('仮眠候補')))
+}
+
+function testSourcePreferencePartialOverlapStillNotDoubleCounted() {
+  const timeline = buildUnifiedSleepTimeline([
+    sourceRecord('source-a-main', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    sourceRecord('source-b-late', 'apple_watch', 'Apple Watch', '2026-05-15T06:30:00+09:00', '2026-05-15T08:00:00+09:00', 'asleep_core'),
+  ], {}, {
+    withings: { sourceKey: 'withings', use: 'primary', priority: 1 },
+    apple_watch: { sourceKey: 'apple_watch', use: 'primary', priority: 2 },
+  })
+
+  assert.equal(timeline.comparison.pendingOverlapCount, 1)
+  assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 240)
+}
+
+function testSourceQualityHighQuality() {
+  const reports = evaluateSourceQuality(
+    [
+      sourceRecord('watch-1', 'apple_watch', 'Apple Watch', '2026-05-12T23:00:00+09:00', '2026-05-13T01:00:00+09:00', 'asleep_core'),
+      sourceRecord('watch-2', 'apple_watch', 'Apple Watch', '2026-05-13T01:00:00+09:00', '2026-05-13T03:00:00+09:00', 'asleep_deep'),
+      sourceRecord('watch-3', 'apple_watch', 'Apple Watch', '2026-05-14T02:00:00+09:00', '2026-05-14T02:20:00+09:00', 'awake'),
+      sourceRecord('watch-4', 'apple_watch', 'Apple Watch', '2026-05-15T12:00:00+09:00', '2026-05-15T12:40:00+09:00', 'asleep_rem'),
+      sourceRecord('watch-5', 'apple_watch', 'Apple Watch', '2026-05-15T23:00:00+09:00', '2026-05-16T01:00:00+09:00', 'asleep_core'),
+    ],
+    new Date('2026-05-15T12:00:00+09:00'),
+  )
+  const report = reports.find((item) => item.sourceKey === 'apple_watch')
+
+  assert.ok(report)
+  assert.equal(report.recommendedUse, 'primary')
+  assert.ok(report.qualityScore >= 75)
+  assert.ok(report.strengths.some((message) => message.includes('REM/Core/Deep')))
+  assert.ok(report.strengths.some((message) => message.includes('Awake')))
+}
+
+function testSourceQualityInBedOnly() {
+  const [report] = evaluateSourceQuality(
+    [
+      sourceRecord('bed-1', 'iphone', 'iPhone', '2026-05-14T23:00:00+09:00', '2026-05-15T07:00:00+09:00', 'in_bed'),
+      sourceRecord('bed-2', 'iphone', 'iPhone', '2026-05-15T13:00:00+09:00', '2026-05-15T13:30:00+09:00', 'in_bed'),
+    ],
+    new Date('2026-05-15T12:00:00+09:00'),
+  )
+
+  assert.equal(report.recommendedUse, 'fallback')
+  assert.ok(report.warnings.some((message) => message.includes('In Bed中心')))
+}
+
+function testSourceQualityManualFallback() {
+  const [report] = evaluateSourceQuality(
+    [
+      sourceRecord('manual-1', 'manual', '手入力', '2026-05-15T00:00:00+09:00', '2026-05-15T07:00:00+09:00', 'asleep'),
+    ],
+    new Date('2026-05-15T12:00:00+09:00'),
+  )
+
+  assert.equal(report.recommendedUse, 'fallback')
+  assert.ok(report.warnings.some((message) => message.includes('手入力らしい')))
+}
+
+function testSourceQualityUnknownButUsable() {
+  const [report] = evaluateSourceQuality(
+    [
+      sourceRecord(
+        'unknown-1',
+        'unknown_source:health_auto_export_json:file_a_json',
+        '不明なソース',
+        '2026-05-15T00:00:00+09:00',
+        '2026-05-15T03:00:00+09:00',
+        'asleep_core',
+      ),
+      sourceRecord(
+        'unknown-2',
+        'unknown_source:health_auto_export_json:file_a_json',
+        '不明なソース',
+        '2026-05-15T13:00:00+09:00',
+        '2026-05-15T13:30:00+09:00',
+        'asleep',
+      ),
+    ],
+    new Date('2026-05-15T12:00:00+09:00'),
+  )
+
+  assert.notEqual(report.recommendedUse, 'ignore')
+  assert.ok(report.warnings.some((message) => message.includes('source情報が不足')))
+}
+
+function testSourceQualityBrokenDuration() {
+  const [report] = evaluateSourceQuality(
+    [
+      {
+        id: 'broken-1',
+        sourceKey: 'broken_source',
+        sourceLabel: 'Broken Source',
+        value: 'asleep',
+        stage: 'asleep',
+        durationMinutes: 0,
+      },
+    ],
+    new Date('2026-05-15T12:00:00+09:00'),
+  )
+
+  assert.equal(report.recommendedUse, 'ignore')
+  assert.ok(report.warnings.some((message) => message.includes('開始・終了時刻')))
+}
+
+function testSourceQualityDetailedStages() {
+  const [report] = evaluateSourceQuality(
+    [
+      sourceRecord('detailed-1', 'withings', 'Withings', '2026-05-15T00:00:00+09:00', '2026-05-15T01:00:00+09:00', 'asleep_rem'),
+      sourceRecord('detailed-2', 'withings', 'Withings', '2026-05-15T01:00:00+09:00', '2026-05-15T03:00:00+09:00', 'asleep_core'),
+      sourceRecord('detailed-3', 'withings', 'Withings', '2026-05-15T03:00:00+09:00', '2026-05-15T05:00:00+09:00', 'asleep_deep'),
+    ],
+    new Date('2026-05-15T12:00:00+09:00'),
+  )
+  const detail = report.scoreBreakdown.find((item) => item.id === 'detailed-stage')
+
+  assert.equal(detail?.score, detail?.maxScore)
+  assert.ok(report.qualityScore > 70)
 }
 
 function testNormalSingleSleep() {
@@ -246,6 +726,225 @@ function testDataQuality() {
   assert.ok(aggregatedReport.issues.some((issue) => issue.id === 'no-date-range'))
 }
 
+async function testSourceKeyGeneration() {
+  const { resolveSleepSource } = await server.ssrLoadModule('/src/lib/source/resolveSleepSource.ts')
+
+  assert.deepEqual(resolveSleepSource({ sourceName: 'Withings Health Auto Export' }), {
+    sourceKey: 'withings',
+    sourceLabel: 'Withings',
+    sourceApp: 'Withings',
+  })
+  assert.deepEqual(resolveSleepSource({ sourceName: 'Apple Watch' }), {
+    sourceKey: 'apple_watch',
+    sourceLabel: 'Apple Watch',
+    sourceApp: 'Apple Watch',
+  })
+  assert.deepEqual(resolveSleepSource({ source: 'iPhone' }), {
+    sourceKey: 'iphone',
+    sourceLabel: 'iPhone',
+    sourceApp: 'iPhone',
+  })
+  assert.deepEqual(resolveSleepSource({ sourceBundleId: 'com.apple.Health' }), {
+    sourceKey: 'apple_health',
+    sourceLabel: 'Apple Health',
+    sourceApp: 'Apple Health',
+  })
+  assert.deepEqual(resolveSleepSource({ sourceKind: 'manual' }), {
+    sourceKey: 'manual',
+    sourceLabel: '手入力',
+    sourceApp: '手入力',
+  })
+  assert.equal(resolveSleepSource({ sourceName: '睡眠アプリ' }).sourceKey.startsWith('source_'), true)
+  assert.deepEqual(resolveSleepSource({}), {
+    sourceKey: 'unknown_source',
+    sourceLabel: '不明なソース',
+  })
+  assert.deepEqual(
+    resolveSleepSource({
+      sourceFormat: 'health_auto_export_json',
+      sourceFile: 'night-export-a.json',
+    }),
+    {
+      sourceKey: 'unknown_source:health_auto_export_json:night_export_a_json',
+      sourceLabel: '不明なソース',
+    },
+  )
+}
+
+async function testLegacyIndexedDbRecordsUseDerivedSourceKey() {
+  const previousIndexedDB = globalThis.indexedDB
+  globalThis.indexedDB = createFakeIndexedDB()
+
+  try {
+    const {
+      importHealthAutoExportJson,
+      saveNormalizedSleepRecords,
+    } = await server.ssrLoadModule('/src/lib/importers/importHealthAutoExportJson.ts')
+
+    await saveNormalizedSleepRecords([
+      {
+        id: 'legacy-withings',
+        value: 'asleep_core',
+        sourceApp: 'Withings',
+        sourceName: 'Withings Health Auto Export',
+        originalValue: 'Core',
+        start: '2026-05-14T23:00:00+09:00',
+        end: '2026-05-15T00:00:00+09:00',
+        startDate: '2026-05-14T23:00:00+09:00',
+        endDate: '2026-05-15T00:00:00+09:00',
+        stage: 'asleep_core',
+        durationMinutes: 60,
+      },
+    ])
+
+    const result = await importHealthAutoExportJson(
+      'legacy-duplicate.json',
+      JSON.stringify({
+        metrics: [
+          {
+            name: 'sleep_analysis',
+            data: [
+              {
+                startDate: '2026-05-14T23:00:00+09:00',
+                endDate: '2026-05-15T00:00:00+09:00',
+                value: 'Core',
+                sourceName: 'Withings Health Auto Export',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    assert.equal(result.importStats.newRecordCount, 0)
+    assert.equal(result.importStats.duplicateSkippedCount, 1)
+    assert.equal(result.importStats.totalSavedRecordCount, 1)
+  } finally {
+    globalThis.indexedDB = previousIndexedDB
+  }
+}
+
+function testNormalizeSleepFileAddsSourceKeys() {
+  const normalized = normalizeSleepFile(
+    'mixed-normalized.json',
+    JSON.stringify({
+      generatedAt: '2026-05-15T00:00:00+09:00',
+      records: [
+        {
+          id: 'watch-core',
+          startDate: '2026-05-14T23:00:00+09:00',
+          endDate: '2026-05-15T01:00:00+09:00',
+          value: 'Core',
+          sourceName: 'Apple Watch',
+        },
+        {
+          id: 'manual-sleep',
+          startDate: '2026-05-15T13:00:00+09:00',
+          endDate: '2026-05-15T13:30:00+09:00',
+          value: 'Asleep',
+          sourceKind: 'manual',
+        },
+        {
+          id: 'unknown-sleep',
+          startDate: '2026-05-15T14:00:00+09:00',
+          endDate: '2026-05-15T14:30:00+09:00',
+          value: 'Asleep',
+        },
+      ],
+    }),
+  )
+
+  assert.equal(normalized.records[0].sourceKey, 'apple_watch')
+  assert.equal(normalized.records[0].sourceApp, 'Apple Watch')
+  assert.equal(normalized.records[1].sourceKey, 'manual')
+  assert.equal(normalized.records[1].sourceApp, '手入力')
+  assert.equal(
+    normalized.records[2].sourceKey,
+    'unknown_source:normalized_sleep_records:mixed_normalized_json',
+  )
+  assert.equal(normalized.records[2].sourceApp, undefined)
+}
+
+async function testUnknownSourceKeysUseFileContext() {
+  const previousIndexedDB = globalThis.indexedDB
+  globalThis.indexedDB = createFakeIndexedDB()
+
+  try {
+    const { importHealthAutoExportJson } = await server.ssrLoadModule(
+      '/src/lib/importers/importHealthAutoExportJson.ts',
+    )
+    const payload = (startDate) =>
+      JSON.stringify({
+        metrics: [
+          {
+            name: 'sleep_analysis',
+            data: [
+              {
+                startDate,
+                endDate: '2026-05-15T01:00:00+09:00',
+                value: 'Core',
+              },
+            ],
+          },
+        ],
+      })
+
+    const first = await importHealthAutoExportJson('unknown-a.json', payload('2026-05-15T00:00:00+09:00'))
+    const second = await importHealthAutoExportJson('unknown-b.json', payload('2026-05-15T00:00:00+09:00'))
+
+    assert.equal(first.records[0].sourceKey, 'unknown_source:health_auto_export_json:unknown_a_json')
+    assert.equal(second.records.length, 2)
+    assert.ok(second.records.some((record) => record.sourceKey === 'unknown_source:health_auto_export_json:unknown_a_json'))
+    assert.ok(second.records.some((record) => record.sourceKey === 'unknown_source:health_auto_export_json:unknown_b_json'))
+    assert.equal(second.importStats.newRecordCount, 1)
+    assert.equal(second.importStats.duplicateSkippedCount, 0)
+  } finally {
+    globalThis.indexedDB = previousIndexedDB
+  }
+}
+
+async function testImportKeepsPartialOverlaps() {
+  const previousIndexedDB = globalThis.indexedDB
+  globalThis.indexedDB = createFakeIndexedDB()
+
+  try {
+    const { importHealthAutoExportJson } = await server.ssrLoadModule(
+      '/src/lib/importers/importHealthAutoExportJson.ts',
+    )
+    const result = await importHealthAutoExportJson(
+      'overlap.json',
+      JSON.stringify({
+        metrics: [
+          {
+            name: 'sleep_analysis',
+            data: [
+              {
+                startDate: '2026-05-15T00:00:00+09:00',
+                endDate: '2026-05-15T02:00:00+09:00',
+                value: 'Core',
+                sourceName: 'Apple Watch',
+              },
+              {
+                startDate: '2026-05-15T01:00:00+09:00',
+                endDate: '2026-05-15T03:00:00+09:00',
+                value: 'Deep',
+                sourceName: 'Apple Watch',
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    assert.equal(result.importStats.normalizedCount, 2)
+    assert.equal(result.importStats.newRecordCount, 2)
+    assert.equal(result.importStats.duplicateSkippedCount, 0)
+    assert.equal(result.records.length, 2)
+  } finally {
+    globalThis.indexedDB = previousIndexedDB
+  }
+}
+
 async function testHealthAutoExportImportFlow() {
   const previousIndexedDB = globalThis.indexedDB
   globalThis.indexedDB = createFakeIndexedDB()
@@ -291,13 +990,13 @@ async function testHealthAutoExportImportFlow() {
               startDate: '2026-05-15 14:00:00 +0900',
               endDate: '2026-05-15 14:15:00 +0900',
               value: 'Awake',
-              sourceName: 'Withings Health Auto Export',
+              sourceName: 'Apple Watch',
             },
             {
               startDate: '2026-05-15 21:30:00 +0900',
               endDate: '2026-05-15 22:00:00 +0900',
               value: 'In Bed',
-              sourceName: 'Withings Health Auto Export',
+              source: 'iPhone',
             },
             {
               startDate: '2026-05-15 23:30:00 +0900',
@@ -317,7 +1016,10 @@ async function testHealthAutoExportImportFlow() {
     assert.equal(first.audit.sleepAnalysisDataFound, true)
     assert.equal(first.audit.isNonAggregated, true)
     assert.equal(first.audit.hasMultipleSegmentsInOneDay, true)
-    assert.equal(first.audit.sourceApp, 'Withings')
+    assert.equal(first.audit.sourceSummaries.length, 3)
+    assert.equal(first.audit.sourceSummaries[0].sourceKey, 'withings')
+    assert.equal(first.audit.sourceSummaries[1].sourceKey, 'apple_watch')
+    assert.equal(first.audit.sourceSummaries[2].sourceKey, 'iphone')
     assert.equal(first.audit.convertibleRows, 6)
     assert.equal(first.audit.rejectedRows, 1)
     assert.equal(first.audit.stageCounts.asleep_core, 1)
@@ -331,6 +1033,9 @@ async function testHealthAutoExportImportFlow() {
     assert.equal(first.importStats.duplicateSkippedCount, 0)
     assert.equal(first.importStats.totalSavedRecordCount, 6)
     assert.equal(first.records.length, 6)
+    assert.ok(first.records.some((record) => record.sourceKey === 'withings'))
+    assert.ok(first.records.some((record) => record.sourceKey === 'apple_watch'))
+    assert.ok(first.records.some((record) => record.sourceKey === 'iphone'))
     assert.equal(first.normalizedFile.sourceFile, fileName)
     assert.equal(first.normalizedFile.records.length, 6)
 
@@ -377,6 +1082,12 @@ function summarize(records) {
   return groups.map((group) => summarizeSleepDay(group))
 }
 
+function summarizeUnified(records) {
+  const timeline = buildUnifiedSleepTimeline(records)
+  const groups = groupBySleepDay(timeline.blocks)
+  return groups.map((group) => summarizeSleepDay(group))
+}
+
 function assertSummary(
   summary,
   { totalSleepMinutes, blockCount, mainCount, napCount, supportCount, eveningCount },
@@ -404,6 +1115,39 @@ function record(id, startDate, endDate, value = 'HKCategoryValueSleepAnalysisAsl
     endDate,
     hasStartDate: true,
     hasEndDate: true,
+  }
+}
+
+function sourceRecord(id, sourceKey, sourceLabel, startDate, endDate, stage) {
+  return {
+    id,
+    sourceKey,
+    sourceLabel,
+    sourceApp: sourceLabel,
+    value: stage,
+    stage,
+    startDate,
+    endDate,
+    start: startDate,
+    end: endDate,
+    durationMinutes: Math.max(0, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 60_000)),
+    hasStartDate: true,
+    hasEndDate: true,
+  }
+}
+
+function createMemoryStorage() {
+  const values = new Map()
+  return {
+    getItem(key) {
+      return values.get(key) ?? null
+    },
+    setItem(key, value) {
+      values.set(key, String(value))
+    },
+    removeItem(key) {
+      values.delete(key)
+    },
   }
 }
 

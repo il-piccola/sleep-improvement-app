@@ -94,7 +94,14 @@ export function HealthAutoExportImportPanel({ onImported }: HealthAutoExportImpo
                 label="分割睡眠の検出"
                 value={result.audit.hasMultipleSegmentsInOneDay ? '検出できます' : '未検出'}
               />
-              {result.audit.sourceApp && <Status label="検出したアプリ" value={result.audit.sourceApp} />}
+              {result.audit.sourceSummaries.length > 0 && (
+                <Status
+                  label="検出したソース"
+                  value={result.audit.sourceSummaries
+                    .map((source) => `${source.sourceLabel} ${source.count}件`)
+                    .join(' / ')}
+                />
+              )}
             </div>
           </div>
 

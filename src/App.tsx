@@ -10,7 +10,18 @@ import { groupBySleepDay } from './lib/analysis/groupBySleepDay'
 import { summarizeSleepDay } from './lib/analysis/summarizeSleepDay'
 import { generateImprovementActions } from './lib/analysis/generateImprovementActions'
 import { checkDataQuality } from './lib/analysis/checkDataQuality'
+import { evaluateSourceQuality } from './lib/analysis/evaluateSourceQuality'
+import { buildUnifiedSleepTimeline } from './lib/analysis/buildUnifiedSleepTimeline'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
+import { resolveSleepSource } from './lib/source/resolveSleepSource'
+import {
+  loadStoredSourcePreferences,
+  removeSourcePreference,
+  resetStoredSourcePreferences,
+  saveStoredSourcePreferences,
+  toSourceUseSetting,
+  upsertSourcePreference,
+} from './lib/source/sourcePreferences'
 import {
   type DataQualityReport,
   defaultAnalysisConfig,
@@ -18,8 +29,15 @@ import {
   type ClassifiedSleepBlock,
   type ImprovementAction,
   type ImprovementPace,
+  type SourceQualityReport,
+  type SourceRecommendedUse,
+  type SleepOverlapReport,
   type SleepDaySummary,
+  type SleepBlock,
   type SleepRecord,
+  type SleepSourcePreferenceMap,
+  type SourceUseSetting,
+  type UnifiedSleepTimeline,
 } from './types/sleep'
 
 type AppScreen =
@@ -29,6 +47,7 @@ type AppScreen =
   | 'fragmentation'
   | 'actions'
   | 'settings'
+  | 'sources'
   | 'import'
 
 type SleepDataFile = {
@@ -49,6 +68,32 @@ type DayMetrics = {
   sleepMidpoint: string
 }
 
+type SleepSourceDetail = {
+  sourceKey: string
+  displayName: string
+  effectiveUse: SourceUseSetting
+  priority: number
+  statusLabel: string
+  description: string
+  quality: SourceQualityReport
+  sourceApp?: string
+  sourceName?: string
+  sourceBundleId?: string
+  deviceName?: string
+  recordCount: number
+  dateRangeLabel: string
+  stageLabels: string[]
+  overlapCount: number
+  fullDuplicateCount: number
+  partialOverlapCount: number
+  adoptedCount: number
+  excludedCount: number
+  inBedOnly: boolean
+  isManualLike: boolean
+  isUnknownSource: boolean
+  logs: string[]
+}
+
 const screens: Array<{ id: AppScreen; label: string }> = [
   { id: 'dashboard', label: '今日の睡眠' },
   { id: 'diagnosis', label: 'データ診断' },
@@ -56,6 +101,7 @@ const screens: Array<{ id: AppScreen; label: string }> = [
   { id: 'fragmentation', label: '分割睡眠' },
   { id: 'actions', label: '改善アクション' },
   { id: 'settings', label: '設定' },
+  { id: 'sources', label: '睡眠ソース' },
   { id: 'import', label: '読み込み' },
 ]
 
@@ -68,31 +114,58 @@ function App() {
     warnings: [],
   })
   const [config, setConfig] = useState<AnalysisConfig>(loadStoredConfig)
+  const [sourcePreferences, setSourcePreferences] = useState<SleepSourcePreferenceMap>(
+    loadStoredSourcePreferences,
+  )
   const [fileStatus, setFileStatus] = useState('匿名サンプルを使用中')
+  const [timelineView, setTimelineView] = useState<'unified' | 'raw'>('unified')
 
   const analysis = useMemo(() => {
-    const blocks = buildSleepBlocks(sleepData.records, config)
-    const groups = groupBySleepDay(blocks, config)
+    const rawBlocks = buildSleepBlocks(sleepData.records, config)
+    const rawGroups = groupBySleepDay(rawBlocks, config)
+    const rawSummaries = rawGroups.map((group) => summarizeSleepDay(group, config))
+    const unifiedTimeline = buildUnifiedSleepTimeline(sleepData.records, config, sourcePreferences)
+    const groups = groupBySleepDay(unifiedTimeline.blocks, config)
     const summaries = groups.map((group) => summarizeSleepDay(group, config))
     const actions = generateImprovementActions(summaries, config)
     const dataQuality = checkDataQuality(sleepData.records)
+    const overlapReport = unifiedTimeline.overlapReport
+    const sourceQuality = evaluateSourceQuality(sleepData.records, new Date(), overlapReport)
+    const sourceDetails = buildSourceDetails(
+      sleepData.records,
+      sourceQuality,
+      overlapReport,
+      unifiedTimeline,
+      sourcePreferences,
+    )
     const latestSummary = summaries.at(-1) ?? null
     const latestMetrics = latestSummary ? getDayMetrics(latestSummary) : null
 
     return {
-      blocks,
+      blocks: unifiedTimeline.blocks,
       groups,
+      rawBlocks,
+      rawGroups,
+      rawSummaries,
       summaries,
       actions,
       dataQuality,
+      overlapReport,
+      sourceQuality,
+      sourceDetails,
+      unifiedTimeline,
       latestSummary,
       latestMetrics,
     }
-  }, [config, sleepData])
+  }, [config, sleepData, sourcePreferences])
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(config))
   }, [config])
+
+  useEffect(() => {
+    saveStoredSourcePreferences(sourcePreferences)
+  }, [sourcePreferences])
 
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
@@ -117,6 +190,8 @@ function App() {
       setFileStatus(message)
     }
   }
+
+  const visibleSummaries = timelineView === 'unified' ? analysis.summaries : analysis.rawSummaries
 
   return (
     <main className="app-shell">
@@ -147,6 +222,24 @@ function App() {
         ))}
       </nav>
 
+      <div className="timeline-view-toggle" aria-label="統合表示の切り替え">
+        <span>表示データ</span>
+        <button
+          className={timelineView === 'unified' ? 'active' : ''}
+          onClick={() => setTimelineView('unified')}
+          type="button"
+        >
+          統合後を見る
+        </button>
+        <button
+          className={timelineView === 'raw' ? 'active' : ''}
+          onClick={() => setTimelineView('raw')}
+          type="button"
+        >
+          統合前を見る
+        </button>
+      </div>
+
       {activeScreen === 'diagnosis' && (
         <DataDiagnosis
           fileStatus={fileStatus}
@@ -154,7 +247,10 @@ function App() {
           recordCount={sleepData.records.length}
           report={analysis.dataQuality}
           sourceKind={sleepData.sourceKind}
+          overlapReport={analysis.overlapReport}
+          sourceQuality={analysis.sourceQuality}
           summaries={analysis.summaries}
+          unifiedTimeline={analysis.unifiedTimeline}
           warnings={sleepData.warnings}
         />
       )}
@@ -168,10 +264,10 @@ function App() {
         />
       )}
 
-      {activeScreen === 'timeline' && <SleepTimeline summaries={analysis.summaries} />}
+      {activeScreen === 'timeline' && <SleepTimeline summaries={visibleSummaries} />}
 
       {activeScreen === 'fragmentation' && (
-        <FragmentationDetail summaries={analysis.summaries} />
+        <FragmentationDetail summaries={visibleSummaries} />
       )}
 
       {activeScreen === 'actions' && <TodayActions actions={analysis.actions} />}
@@ -183,6 +279,18 @@ function App() {
           onReset={() => {
             setConfig(defaultAnalysisConfig)
             localStorage.removeItem(SETTINGS_STORAGE_KEY)
+          }}
+        />
+      )}
+
+      {activeScreen === 'sources' && (
+        <SourceSettings
+          details={analysis.sourceDetails}
+          preferences={sourcePreferences}
+          onChange={setSourcePreferences}
+          onReset={() => {
+            setSourcePreferences({})
+            resetStoredSourcePreferences()
           }}
         />
       )}
@@ -229,7 +337,10 @@ function DataDiagnosis({
   recordCount,
   report,
   sourceKind,
+  overlapReport,
+  sourceQuality,
   summaries,
+  unifiedTimeline,
   warnings,
 }: {
   fileStatus: string
@@ -237,7 +348,10 @@ function DataDiagnosis({
   recordCount: number
   report: DataQualityReport
   sourceKind?: string
+  overlapReport: SleepOverlapReport
+  sourceQuality: SourceQualityReport[]
   summaries: SleepDaySummary[]
+  unifiedTimeline: UnifiedSleepTimeline
   warnings: string[]
 }) {
   const blockCount = summaries.reduce((sum, summary) => sum + summary.blockCount, 0)
@@ -287,6 +401,155 @@ function DataDiagnosis({
             <li key={note}>{note}</li>
           ))}
         </ul>
+      </Panel>
+      <Panel title="ソース間の重なり">
+        <p className="muted">
+          統合前の確認です。ここでは候補を表示するだけで、睡眠データは削除しません。
+        </p>
+        <div className="overlap-summary-grid">
+          <StatusRow
+            label="完全重複候補"
+            value={`${overlapReport.fullDuplicateCandidates.length}件`}
+          />
+          <StatusRow
+            label="部分重複候補"
+            value={`${overlapReport.partialOverlapCandidates.length}件`}
+          />
+          <StatusRow
+            label="判断保留"
+            value={`${overlapReport.pendingReviewCandidates.length}件`}
+          />
+          <StatusRow
+            label="独立睡眠候補"
+            value={`${overlapReport.independentBlockIds.length}件`}
+          />
+        </div>
+        <ul className="plain-list import-format-list">
+          <li>完全重複候補は、次の統合Phaseで二重カウントしない対象になります。</li>
+          <li>部分重複候補は、まだ自動削除せず判断保留として扱います。</li>
+          <li>独立した睡眠候補は、分割睡眠として残します。</li>
+        </ul>
+        {overlapReport.sourceSummaries.length > 0 && (
+          <div className="source-overlap-list">
+            {overlapReport.sourceSummaries.map((summary) => (
+              <div key={summary.sourceKey}>
+                <span>{summary.sourceKey}</span>
+                <strong>{Math.round(summary.overlapRate * 100)}%</strong>
+                <small>
+                  {summary.overlappedBlockCount}/{summary.totalBlockCount}ブロック
+                </small>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+      <Panel title="統合タイムライン">
+        <p className="muted">
+          主要指標は統合後データで計算します。完全重複は自動でまとめ、部分重複は判断保留に残します。
+        </p>
+        <div className="overlap-summary-grid">
+          <StatusRow
+            label="統合前の総睡眠"
+            value={formatMinutes(unifiedTimeline.comparison.rawTotalSleepMinutes)}
+          />
+          <StatusRow
+            label="統合後の総睡眠"
+            value={formatMinutes(unifiedTimeline.comparison.unifiedTotalSleepMinutes)}
+          />
+          <StatusRow
+            label="統合前ブロック"
+            value={`${unifiedTimeline.comparison.rawBlockCount}件`}
+          />
+          <StatusRow
+            label="統合後ブロック"
+            value={`${unifiedTimeline.comparison.unifiedBlockCount}件`}
+          />
+          <StatusRow
+            label="採用レコード"
+            value={`${unifiedTimeline.comparison.adoptedRecordCount}件`}
+          />
+          <StatusRow
+            label="重複除外"
+            value={`${unifiedTimeline.comparison.duplicateExcludedCount}件`}
+          />
+          <StatusRow
+            label="fallback利用"
+            value={`${unifiedTimeline.comparison.fallbackUsedCount}件`}
+          />
+          <StatusRow
+            label="判断保留"
+            value={`${unifiedTimeline.comparison.pendingOverlapCount}件`}
+          />
+        </div>
+        {unifiedTimeline.anomalyWarnings.length > 0 && (
+          <ul className="quality-list">
+            {unifiedTimeline.anomalyWarnings.map((warning) => (
+              <li className="warning" key={warning}>
+                {warning}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="unified-block-list">
+          {unifiedTimeline.blocks.map((block) => (
+            <article className="unified-block-item" key={block.id}>
+              <div>
+                <strong>{formatTimeRange(block)}</strong>
+                <span>{block.sourceLabels.join(' / ')}</span>
+              </div>
+              <span>{formatMinutes(block.durationMinutes)}</span>
+              {block.isPendingReview && <small>部分重複あり・主要指標では暫定採用</small>}
+              {block.isFallbackBlock && <small>実睡眠データなしのためIn Bedを補助採用</small>}
+            </article>
+          ))}
+        </div>
+      </Panel>
+      <Panel title="統合理由ログ">
+        <ul className="plain-list integration-log-list">
+          {unifiedTimeline.logs.slice(0, 12).map((log) => (
+            <li className={log.severity === 'warning' ? 'warning-note' : ''} key={log.id}>
+              {log.message}
+            </li>
+          ))}
+          {unifiedTimeline.logs.length > 12 && (
+            <li>{unifiedTimeline.logs.length - 12}件のログを省略しています。</li>
+          )}
+          {unifiedTimeline.logs.length === 0 && <li>統合上の注意はありません。</li>}
+        </ul>
+      </Panel>
+      <Panel title="ソース品質">
+        <p className="muted">
+          医学的な評価ではなく、このアプリ内で睡眠分析に使いやすいデータかを見る目安です。
+        </p>
+        <div className="source-quality-list">
+          {sourceQuality.map((source) => (
+            <article className="source-quality-item" key={source.sourceKey}>
+              <div className="source-quality-head">
+                <div>
+                  <h3>{source.displayName}</h3>
+                  <span>{source.sourceKey}</span>
+                </div>
+                <strong>{source.qualityScore}</strong>
+              </div>
+              <p className={`source-use ${source.recommendedUse}`}>
+                {toRecommendedUseDescription(source.recommendedUse)}
+              </p>
+              <StatusRow label="重複率" value={`${Math.round(source.overlapRate * 100)}%`} />
+              <div className="source-breakdown">
+                {source.scoreBreakdown.map((item) => (
+                  <div key={item.id}>
+                    <span>{item.label}</span>
+                    <strong>
+                      {item.score}/{item.maxScore}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+              <SourceNotes title="強み" items={source.strengths} />
+              {source.warnings.length > 0 && <SourceNotes title="注意点" items={source.warnings} />}
+            </article>
+          ))}
+        </div>
       </Panel>
     </section>
   )
@@ -551,6 +814,161 @@ function Settings({
   )
 }
 
+function SourceSettings({
+  details,
+  preferences,
+  onChange,
+  onReset,
+}: {
+  details: SleepSourceDetail[]
+  preferences: SleepSourcePreferenceMap
+  onChange: (preferences: SleepSourcePreferenceMap) => void
+  onReset: () => void
+}) {
+  const [expandedSourceKey, setExpandedSourceKey] = useState<string | null>(null)
+
+  const updateUse = (sourceKey: string, use: SourceUseSetting) => {
+    onChange(upsertSourcePreference(preferences, sourceKey, { use }))
+  }
+
+  const updatePriority = (sourceKey: string, priority: number) => {
+    onChange(upsertSourcePreference(preferences, sourceKey, { priority }))
+  }
+
+  const resetOne = (sourceKey: string) => {
+    onChange(removeSourcePreference(preferences, sourceKey))
+  }
+
+  return (
+    <section className="settings-screen">
+      <Panel title="睡眠ソース設定">
+        <p className="settings-copy">
+          自動判定を目安にしつつ、どのソースを優先するか調整できます。変更すると統合タイムライン、分割睡眠、昼夜逆転の目安を再計算します。
+        </p>
+        <div className="source-settings-list">
+          {details.map((detail) => {
+            const isExpanded = expandedSourceKey === detail.sourceKey
+            return (
+              <article className="source-setting-card" key={detail.sourceKey}>
+                <div className="source-setting-head">
+                  <div>
+                    <h3>{detail.displayName}</h3>
+                    <p>{detail.description}</p>
+                  </div>
+                  <div className={`source-status ${detail.effectiveUse}`}>
+                    <span>{detail.statusLabel}</span>
+                    <strong>{detail.quality.qualityScore}</strong>
+                  </div>
+                </div>
+
+                <div className="source-setting-controls">
+                  <label>
+                    <span>使い方</span>
+                    <select
+                      value={detail.effectiveUse}
+                      onChange={(event) =>
+                        updateUse(detail.sourceKey, event.target.value as SourceUseSetting)
+                      }
+                    >
+                      <option value="primary">primary</option>
+                      <option value="secondary">secondary</option>
+                      <option value="fallback">fallback</option>
+                      <option value="ignored">ignored</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>優先順位</span>
+                    <input
+                      min="1"
+                      onChange={(event) =>
+                        updatePriority(detail.sourceKey, Number(event.target.value))
+                      }
+                      type="number"
+                      value={detail.priority}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    onClick={() =>
+                      setExpandedSourceKey(isExpanded ? null : detail.sourceKey)
+                    }
+                    type="button"
+                  >
+                    {isExpanded ? '詳細を閉じる' : '詳細を見る'}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => resetOne(detail.sourceKey)}
+                    type="button"
+                  >
+                    初期推奨に戻す
+                  </button>
+                </div>
+
+                <div className="tag-row">
+                  <span className="tag">{toRecommendedUseDescription(detail.quality.recommendedUse)}</span>
+                  <span className="tag">推奨: {detail.quality.recommendedUse}</span>
+                  {detail.overlapCount > 0 && <span className="tag">重なりあり</span>}
+                  {detail.isUnknownSource && <span className="tag">unknown_source</span>}
+                </div>
+
+                {isExpanded && (
+                  <div className="source-detail-panel">
+                    <div className="overlap-summary-grid">
+                      <StatusRow label="sourceKey" value={detail.sourceKey} />
+                      <StatusRow label="sourceApp" value={detail.sourceApp ?? 'なし'} />
+                      <StatusRow label="sourceName" value={detail.sourceName ?? 'なし'} />
+                      <StatusRow label="sourceBundleId" value={detail.sourceBundleId ?? 'なし'} />
+                      <StatusRow label="deviceName" value={detail.deviceName ?? 'なし'} />
+                      <StatusRow label="レコード数" value={`${detail.recordCount}件`} />
+                      <StatusRow label="日付範囲" value={detail.dateRangeLabel} />
+                      <StatusRow label="睡眠ステージ" value={detail.stageLabels.join(' / ') || 'なし'} />
+                      <StatusRow label="overlap件数" value={`${detail.overlapCount}件`} />
+                      <StatusRow label="完全重複" value={`${detail.fullDuplicateCount}件`} />
+                      <StatusRow label="部分重複" value={`${detail.partialOverlapCount}件`} />
+                      <StatusRow label="統合時の採用" value={`${detail.adoptedCount}件`} />
+                      <StatusRow label="統合時の除外" value={`${detail.excludedCount}件`} />
+                      <StatusRow label="In Bedだけ" value={detail.inBedOnly ? 'はい' : 'いいえ'} />
+                      <StatusRow label="手入力らしい" value={detail.isManualLike ? 'はい' : 'いいえ'} />
+                      <StatusRow label="unknown_source" value={detail.isUnknownSource ? 'はい' : 'いいえ'} />
+                    </div>
+                    <div className="source-breakdown">
+                      {detail.quality.scoreBreakdown.map((item) => (
+                        <div key={item.id}>
+                          <span>{item.label}</span>
+                          <strong>
+                            {item.score}/{item.maxScore}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                    <SourceNotes title="強み" items={detail.quality.strengths} />
+                    {detail.quality.warnings.length > 0 && (
+                      <SourceNotes title="注意点" items={detail.quality.warnings} />
+                    )}
+                    <SourceNotes title="統合理由ログ" items={detail.logs} />
+                  </div>
+                )}
+              </article>
+            )
+          })}
+        </div>
+      </Panel>
+
+      <Panel title="ソース設定の管理">
+        <button className="secondary-button" onClick={onReset} type="button">
+          すべて初期推奨に戻す
+        </button>
+        <ul className="plain-list import-format-list">
+          <li>primaryが複数ある場合は優先順位の小さいソースを先に見ます。</li>
+          <li>ignoredにしたソースは統合タイムラインと主要指標から除外します。</li>
+          <li>fallbackは同じ時間帯に実睡眠データがない場合だけ補助的に使います。</li>
+        </ul>
+      </Panel>
+    </section>
+  )
+}
+
 function FileImport({
   fileStatus,
   onHealthAutoExportImported,
@@ -631,6 +1049,19 @@ function StatusRow({ label, value }: { label: string; value: string }) {
     <div className="status-row">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  )
+}
+
+function SourceNotes({ items, title }: { items: string[]; title: string }) {
+  return (
+    <div className="source-notes">
+      <span>{title}</span>
+      <ul>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -732,6 +1163,143 @@ function PaceSetting({
       </div>
     </fieldset>
   )
+}
+
+function buildSourceDetails(
+  records: SleepRecord[],
+  sourceQuality: SourceQualityReport[],
+  overlapReport: SleepOverlapReport,
+  unifiedTimeline: UnifiedSleepTimeline,
+  preferences: SleepSourcePreferenceMap,
+): SleepSourceDetail[] {
+  return sourceQuality.map((quality, index) => {
+    const sourceRecords = records.filter(
+      (record) => resolveSleepSource(record).sourceKey === quality.sourceKey,
+    )
+    const first = sourceRecords[0]
+    const preference = preferences[quality.sourceKey]
+    const effectiveUse = preference?.use ?? toSourceUseSetting(quality.recommendedUse)
+    const priority = preference?.priority ?? index + 1
+    const fullDuplicateCount = overlapReport.fullDuplicateCandidates.filter((candidate) =>
+      candidate.sourceKeys.includes(quality.sourceKey),
+    ).length
+    const partialOverlapCount = overlapReport.partialOverlapCandidates.filter((candidate) =>
+      candidate.sourceKeys.includes(quality.sourceKey),
+    ).length
+    const unifiedRecords = unifiedTimeline.records.filter(
+      (record) => resolveSleepSource(record).sourceKey === quality.sourceKey,
+    )
+    const adoptedCount = unifiedRecords.filter((record) => record.unifiedStatus === 'adopted').length
+    const excludedCount = unifiedRecords.filter((record) =>
+      ['excluded_duplicate', 'pending_overlap', 'ignored'].includes(record.unifiedStatus),
+    ).length
+    const stageLabels = Array.from(
+      new Set(sourceRecords.map((record) => String(record.stage ?? record.value))),
+    )
+    const inBedOnly =
+      sourceRecords.length > 0 &&
+      sourceRecords.every((record) => normalizeStageLabel(record.stage ?? record.value) === 'in_bed')
+    const sourceText = [
+      quality.sourceKey,
+      first?.sourceApp,
+      first?.sourceName,
+      first?.sourceKind,
+      first?.sourceLabel,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+
+    return {
+      sourceKey: quality.sourceKey,
+      displayName: quality.displayName,
+      effectiveUse,
+      priority,
+      statusLabel: toSourceStatusLabel(effectiveUse, quality.warnings.length > 0),
+      description: describeSourceSetting(quality, effectiveUse),
+      quality,
+      sourceApp: first?.sourceApp,
+      sourceName: first?.sourceName,
+      sourceBundleId: first?.sourceBundleId,
+      deviceName: first?.deviceName,
+      recordCount: sourceRecords.length,
+      dateRangeLabel: formatSourceDateRange(sourceRecords),
+      stageLabels,
+      overlapCount: fullDuplicateCount + partialOverlapCount,
+      fullDuplicateCount,
+      partialOverlapCount,
+      adoptedCount,
+      excludedCount,
+      inBedOnly,
+      isManualLike: sourceText.includes('manual') || sourceText.includes('手入力'),
+      isUnknownSource: quality.sourceKey.startsWith('unknown_source'),
+      logs: unifiedTimeline.logs
+        .filter((log) => log.sourceKeys.includes(quality.sourceKey))
+        .map((log) => log.message),
+    }
+  })
+}
+
+function describeSourceSetting(
+  quality: SourceQualityReport,
+  effectiveUse: SourceUseSetting,
+): string {
+  if (effectiveUse === 'ignored') {
+    return 'このソースはユーザー設定で除外されています。主要指標には使いません。'
+  }
+
+  if (quality.sourceKey.startsWith('unknown_source')) {
+    return 'このソースは不明なソースですが、睡眠ステージが取れている場合は候補に残せます。'
+  }
+
+  if (quality.recommendedUse === 'primary') {
+    return 'このソースは細かい睡眠ステージがあるため主データ候補です。'
+  }
+
+  if (quality.recommendedUse === 'fallback') {
+    return 'このソースはIn Bed中心または手入力らしいため補助データ候補です。'
+  }
+
+  if (quality.overlapRate > 0) {
+    return 'このソースは他ソースと重なりが多いため、自動統合では一部除外されています。'
+  }
+
+  return 'このソースは睡眠分析の候補として利用できます。'
+}
+
+function toSourceStatusLabel(use: SourceUseSetting, hasWarnings: boolean): string {
+  if (use === 'ignored') return '除外'
+  if (hasWarnings) return '注意あり'
+  if (use === 'fallback') return '補助'
+  return '使用中'
+}
+
+function formatSourceDateRange(records: SleepRecord[]): string {
+  const dates = records
+    .flatMap((record) => [record.start ?? record.startDate, record.end ?? record.endDate])
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime())
+
+  if (dates.length === 0) {
+    return '日付なし'
+  }
+
+  return `${formatShortDate(dates[0])} - ${formatShortDate(dates.at(-1) ?? dates[0])}`
+}
+
+function formatShortDate(date: Date): string {
+  return new Intl.DateTimeFormat('ja-JP', {
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+function normalizeStageLabel(value: string): string {
+  const normalized = value.toLowerCase()
+  if (normalized.includes('inbed') || normalized === 'in_bed') return 'in_bed'
+  return normalized
 }
 
 function loadStoredConfig(): AnalysisConfig {
@@ -840,7 +1408,7 @@ function formatMinutes(minutes: number): string {
   return `${hours}時間${remainingMinutes}分`
 }
 
-function formatTimeRange(block: ClassifiedSleepBlock): string {
+function formatTimeRange(block: SleepBlock): string {
   if (!block.startDate || !block.endDate) {
     return '時刻なし'
   }
@@ -887,6 +1455,17 @@ function toPriorityLabel(priority: ImprovementAction['priority']): string {
   }
 
   return labels[priority]
+}
+
+function toRecommendedUseDescription(use: SourceRecommendedUse): string {
+  const labels: Record<SourceRecommendedUse, string> = {
+    primary: 'このソースは主データ候補です',
+    secondary: 'このソースは補助データ候補です',
+    fallback: 'このソースはIn Bed中心または手入力らしいため補助用です',
+    ignore: 'このソースは分析には使いにくい形式です',
+  }
+
+  return labels[use]
 }
 
 export default App

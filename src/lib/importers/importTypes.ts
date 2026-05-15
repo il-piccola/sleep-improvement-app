@@ -12,6 +12,12 @@ export type HealthAutoExportAuditMessage = {
 
 export type HealthAutoExportStageCounts = Partial<Record<NormalizedSleepStage, number>>
 
+export type HealthAutoExportSourceSummary = {
+  sourceKey: string
+  sourceLabel: string
+  count: number
+}
+
 export type HealthAutoExportAuditResult = {
   status: ImportStatus
   statusLabel: string
@@ -28,6 +34,7 @@ export type HealthAutoExportAuditResult = {
   dateRangeLabel: string
   hasMultipleSegmentsInOneDay: boolean
   sourceApp?: string
+  sourceSummaries: HealthAutoExportSourceSummary[]
 }
 
 export type HealthAutoExportImportResult = {

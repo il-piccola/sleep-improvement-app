@@ -1,11 +1,13 @@
 import type {
   HealthAutoExportAuditMessage,
   HealthAutoExportAuditResult,
+  HealthAutoExportSourceSummary,
   HealthAutoExportStageCounts,
   RawHealthAutoExportMetric,
   RawHealthAutoExportRow,
 } from './importTypes'
 import type { NormalizedSleepStage } from '../../types/sleep'
+import { resolveSleepSource } from '../source/resolveSleepSource'
 
 type ParsedAuditInput = {
   parsed: unknown
@@ -66,7 +68,6 @@ export function auditHealthAutoExportJson(input: unknown): HealthAutoExportAudit
           'metrics 配列はありませんが、sleep_analysis 相当のデータを見つけました。',
         ),
       ],
-      root: input,
     })
   }
 
@@ -87,7 +88,6 @@ export function auditHealthAutoExportJson(input: unknown): HealthAutoExportAudit
     metricsCount: metrics.length,
     metricsFound: true,
     messages: [info('metrics-found', `metrics 配列を確認しました。metric数は${metrics.length}件です。`)],
-    root: input,
   })
 }
 
@@ -96,13 +96,11 @@ function auditSleepMetric({
   metricsFound,
   metricsCount,
   messages,
-  root,
 }: {
   metric: RawHealthAutoExportMetric
   metricsFound: boolean
   metricsCount: number
   messages: HealthAutoExportAuditMessage[]
-  root: unknown
 }): HealthAutoExportAuditResult {
   if (!Array.isArray(metric.data)) {
     return buildResult({
@@ -134,7 +132,8 @@ function auditSleepMetric({
     qty: rows.some((row) => Object.prototype.hasOwnProperty.call(row, 'qty')),
     value: rows.some((row) => Object.prototype.hasOwnProperty.call(row, 'value')),
   }
-  const sourceApp = detectWithings(root)
+  const sourceSummaries = collectSourceSummaries(rows)
+  const sourceApp = sourceSummaries.length === 1 ? sourceSummaries[0].sourceLabel : undefined
 
   messages.push(info('sleep-analysis-found', 'sleep_analysis の data を確認しました。'))
 
@@ -170,8 +169,15 @@ function auditSleepMetric({
     messages.push(info('no-multiple-segments', '1日に複数回の睡眠セグメントは検出されませんでした。'))
   }
 
-  if (sourceApp) {
-    messages.push(info('withings-source', `${sourceApp} 由来らしい文字列が見つかりました。`))
+  if (sourceSummaries.length > 0) {
+    messages.push(
+      info(
+        'source-summary',
+        `ソース情報を${sourceSummaries.length}種類検出しました: ${sourceSummaries
+          .map((source) => source.sourceLabel)
+          .join(' / ')}`,
+      ),
+    )
   }
 
   return buildResult({
@@ -188,6 +194,7 @@ function auditSleepMetric({
     dateRangeLabel,
     hasMultipleSegmentsInOneDay,
     sourceApp,
+    sourceSummaries,
   })
 }
 
@@ -321,6 +328,7 @@ function buildResult(
     dateRangeLabel: partial.dateRangeLabel ?? '不明',
     hasMultipleSegmentsInOneDay: partial.hasMultipleSegmentsInOneDay ?? false,
     sourceApp: partial.sourceApp,
+    sourceSummaries: partial.sourceSummaries ?? [],
   }
 }
 
@@ -351,9 +359,33 @@ function detectMultipleSegmentsInOneDay(rows: ReturnType<typeof auditRow>[]): bo
   return Array.from(counts.values()).some((count) => count > 1)
 }
 
-function detectWithings(input: unknown): string | undefined {
-  const text = JSON.stringify(input)
-  return /withings/i.test(text) ? 'Withings' : undefined
+function collectSourceSummaries(rows: RawHealthAutoExportRow[]): HealthAutoExportSourceSummary[] {
+  const summaries = new Map<string, HealthAutoExportSourceSummary>()
+
+  for (const row of rows) {
+    const source = resolveSleepSource({
+      sourceApp: getString(row.sourceApp),
+      sourceName: getString(row.sourceName),
+      source: getString(row.source),
+      sourceKind: getString(row.sourceKind),
+      deviceName: getString(row.deviceName),
+      sourceBundleId: getString(row.sourceBundleId),
+    })
+    const existing = summaries.get(source.sourceKey)
+
+    if (existing) {
+      existing.count += 1
+      continue
+    }
+
+    summaries.set(source.sourceKey, {
+      sourceKey: source.sourceKey,
+      sourceLabel: source.sourceLabel,
+      count: 1,
+    })
+  }
+
+  return Array.from(summaries.values()).sort((left, right) => right.count - left.count)
 }
 
 function formatDateRange(dates: Date[]): string {

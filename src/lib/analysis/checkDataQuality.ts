@@ -18,7 +18,16 @@ export function checkDataQuality(records: SleepRecord[], now = new Date()): Data
   const hasActualSleepStage = stageCounts.asleep > 0
   const isOnlyInBed = records.length > 0 && stageCounts.inBed === records.length
   const isOnlyAwake = records.length > 0 && stageCounts.awake === records.length
-  const hasSourceInfo = records.some((record) => Boolean(record.sourceName ?? record.source))
+  const hasSourceInfo = records.some((record) =>
+    Boolean(
+        record.sourceName ??
+        record.source ??
+        record.sourceApp ??
+        (record.sourceKey && !record.sourceKey.startsWith('unknown_source')
+          ? record.sourceKey
+          : undefined),
+    ),
+  )
   const isLikelyAggregated = isAggregatedLike(records)
   const blocks = buildSleepBlocks(records)
   const sleepDayGroups = groupBySleepDay(blocks)

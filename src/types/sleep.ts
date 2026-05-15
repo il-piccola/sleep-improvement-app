@@ -31,11 +31,24 @@ export type DataQualityIssueSeverity = 'info' | 'warning' | 'error'
 
 export type ImprovementPace = 'slow' | 'standard' | 'firm'
 
+export type SourceRecommendedUse = 'primary' | 'secondary' | 'fallback' | 'ignore'
+
+export type SourceUseSetting = 'primary' | 'secondary' | 'fallback' | 'ignored'
+
+export type SleepSourcePreference = {
+  sourceKey: string
+  use: SourceUseSetting
+  priority: number
+}
+
+export type SleepSourcePreferenceMap = Record<string, SleepSourcePreference>
+
 export type SleepRecord = {
   id: string
   value: SleepRecordValue
   sourceFormat?: 'health_auto_export_json' | 'normalized_sleep_records' | 'apple_health_xml' | string
   sourceFile?: string
+  sourceKey: string
   sourceApp?: string
   originalValue?: string
   start?: string
@@ -51,11 +64,16 @@ export type SleepRecord = {
   source?: string
   sourceName?: string
   sourceKind?: string
+  sourceLabel?: string
+  deviceName?: string
+  sourceBundleId?: string
 }
 
 export type SleepBlock = {
   id: string
   sourceRecordIds: string[]
+  sourceKeys: string[]
+  sourceLabels: string[]
   recordKinds: SleepRecordKind[]
   values: SleepRecordValue[]
   startDate: string | null
@@ -126,6 +144,109 @@ export type DataQualityReport = {
   hasSourceInfo: boolean
   isLikelyAggregated: boolean
   issues: DataQualityIssue[]
+}
+
+export type SourceQualityBreakdownItem = {
+  id: string
+  label: string
+  score: number
+  maxScore: number
+}
+
+export type SourceQualityReport = {
+  sourceKey: string
+  displayName: string
+  qualityScore: number
+  overlapRate: number
+  scoreBreakdown: SourceQualityBreakdownItem[]
+  strengths: string[]
+  warnings: string[]
+  recommendedUse: SourceRecommendedUse
+}
+
+export type SleepOverlapKind = 'full_duplicate_candidate' | 'partial_overlap_candidate'
+
+export type SleepOverlapCandidate = {
+  id: string
+  kind: SleepOverlapKind
+  overlapRatio: number
+  overlapMinutes: number
+  sourceKeys: [string, string]
+  blockIds: [string, string]
+  timeRangeLabel: string
+}
+
+export type SleepOverlapSourceSummary = {
+  sourceKey: string
+  overlapRate: number
+  overlappedBlockCount: number
+  totalBlockCount: number
+}
+
+export type SleepOverlapReport = {
+  fullDuplicateCandidates: SleepOverlapCandidate[]
+  partialOverlapCandidates: SleepOverlapCandidate[]
+  pendingReviewCandidates: SleepOverlapCandidate[]
+  independentBlockIds: string[]
+  sourceSummaries: SleepOverlapSourceSummary[]
+}
+
+export type UnifiedRecordStatus =
+  | 'adopted'
+  | 'excluded_duplicate'
+  | 'pending_overlap'
+  | 'support'
+  | 'ignored'
+
+export type UnifiedSleepRecord = SleepRecord & {
+  unifiedStatus: UnifiedRecordStatus
+  unifiedReason: string
+  unifiedBlockId?: string
+}
+
+export type UnifiedSleepBlock = SleepBlock & {
+  adoptedFromBlockIds: string[]
+  excludedBlockIds: string[]
+  pendingOverlapBlockIds: string[]
+  integrationNotes: string[]
+  isFallbackBlock: boolean
+  isPendingReview: boolean
+}
+
+export type SleepIntegrationLogEntry = {
+  id: string
+  severity: 'info' | 'warning'
+  action:
+    | 'adopted'
+    | 'excluded_duplicate'
+    | 'pending_overlap'
+    | 'fallback_used'
+    | 'support_only'
+    | 'anomaly'
+  message: string
+  adoptedBlockId?: string
+  affectedBlockIds: string[]
+  sourceKeys: string[]
+}
+
+export type SleepIntegrationComparison = {
+  rawTotalSleepMinutes: number
+  unifiedTotalSleepMinutes: number
+  rawBlockCount: number
+  unifiedBlockCount: number
+  adoptedRecordCount: number
+  duplicateExcludedCount: number
+  fallbackUsedCount: number
+  pendingOverlapCount: number
+}
+
+export type UnifiedSleepTimeline = {
+  records: UnifiedSleepRecord[]
+  blocks: UnifiedSleepBlock[]
+  logs: SleepIntegrationLogEntry[]
+  comparison: SleepIntegrationComparison
+  anomalyWarnings: string[]
+  overlapReport: SleepOverlapReport
 }
 
 export type AnalysisConfig = {

@@ -1,4 +1,5 @@
 import type { SleepRecord, SleepRecordValue } from '../../types/sleep'
+import { resolveSleepSource } from '../source/resolveSleepSource'
 
 export type NormalizedSleepFile = {
   generatedAt: string
@@ -36,7 +37,9 @@ function normalizeKnownRecords(
   input: { generatedAt?: unknown; records: unknown[] },
 ): NormalizedSleepFile {
   const records = input.records
-    .map((record, index) => normalizeJsonRecord(record, `normalized-${index + 1}`))
+    .map((record, index) =>
+      normalizeJsonRecord(record, `normalized-${index + 1}`, 'normalized_sleep_records', fileName),
+    )
     .filter((record): record is SleepRecord => record !== null)
   const warnings = buildCommonWarnings(records)
 
@@ -59,7 +62,9 @@ function normalizeHealthAutoExportJson(fileName: string, input: unknown): Normal
   }
 
   const records = selected.records
-    .map((record, index) => normalizeJsonRecord(record, `hae-${index + 1}`))
+    .map((record, index) =>
+      normalizeJsonRecord(record, `hae-${index + 1}`, 'health_auto_export_json', fileName),
+    )
     .filter((record): record is SleepRecord => record !== null)
   const warnings = buildCommonWarnings(records)
 
@@ -97,18 +102,35 @@ function normalizeAppleHealthXml(fileName: string, text: string): NormalizedSlee
       }
 
       const sourceName = record.getAttribute('sourceName') ?? undefined
+      const deviceName = record.getAttribute('device') ?? undefined
+      const sourceBundleId = record.getAttribute('sourceBundleId') ?? undefined
+      const source = resolveSleepSource({
+        sourceName,
+        deviceName,
+        sourceBundleId,
+        sourceFormat: 'apple_health_xml',
+        sourceFile: fileName,
+      })
 
       return {
         id: `apple-health-${index + 1}`,
         value,
+        sourceFormat: 'apple_health_xml',
+        sourceFile: fileName,
+        sourceKey: source.sourceKey,
+        sourceApp: source.sourceApp,
+        sourceLabel: source.sourceLabel,
         startDate: startDate ?? undefined,
         endDate: endDate ?? undefined,
         durationMinutes: calculateDurationMinutes(startDate, endDate),
         hasStartDate: Boolean(startDate),
         hasEndDate: Boolean(endDate),
-        hasSource: Boolean(sourceName),
+        hasSource: Boolean(sourceName ?? deviceName ?? sourceBundleId),
         sourceKind: sourceName ? 'present' : undefined,
+        source: sourceName,
         sourceName,
+        deviceName,
+        sourceBundleId,
       }
     })
     .filter((record): record is SleepRecord => record !== null)
@@ -163,7 +185,12 @@ function findHealthAutoExportCandidates(input: unknown): RecordCandidate[] {
   return candidates.sort((left, right) => Number(left.isAggregated) - Number(right.isAggregated))
 }
 
-function normalizeJsonRecord(input: unknown, fallbackId: string): SleepRecord | null {
+function normalizeJsonRecord(
+  input: unknown,
+  fallbackId: string,
+  sourceFormat: SleepRecord['sourceFormat'],
+  sourceFile: string,
+): SleepRecord | null {
   if (!isObjectRecord(input)) {
     return null
   }
@@ -179,7 +206,23 @@ function normalizeJsonRecord(input: unknown, fallbackId: string): SleepRecord | 
     'valueNumeric',
   ])
   const value = firstString(input, ['value', 'sleepValue', 'sleep_value', 'stage', 'category'])
+  const sourceKey = firstString(input, ['sourceKey', 'source_key'])
+  const sourceApp = firstString(input, ['sourceApp', 'source_app'])
   const sourceName = firstString(input, ['sourceName', 'source_name', 'source'])
+  const sourceKind = firstString(input, ['sourceKind', 'source_kind'])
+  const deviceName = firstString(input, ['deviceName', 'device_name', 'device'])
+  const sourceBundleId = firstString(input, ['sourceBundleId', 'source_bundle_id'])
+  const source = resolveSleepSource({
+    sourceKey,
+    sourceApp,
+    sourceName,
+    source: firstString(input, ['source']),
+    sourceKind,
+    deviceName,
+    sourceBundleId,
+    sourceFormat,
+    sourceFile,
+  })
   const dayIndex = firstNumber(input, ['dayIndex', 'day_index'])
   const normalizedDuration = startDate && endDate ? calculateDurationMinutes(startDate, endDate) : durationMinutes
 
@@ -190,16 +233,23 @@ function normalizeJsonRecord(input: unknown, fallbackId: string): SleepRecord | 
   return {
     id: firstString(input, ['id', 'uuid']) ?? fallbackId,
     value: normalizeSleepValue(value),
+    sourceFormat,
+    sourceFile,
+    sourceKey: source.sourceKey,
+    sourceApp: source.sourceApp,
+    sourceLabel: source.sourceLabel,
     startDate: startDate ?? undefined,
     endDate: endDate ?? undefined,
     durationMinutes: normalizedDuration,
     dayIndex,
     hasStartDate: Boolean(startDate),
     hasEndDate: Boolean(endDate),
-    hasSource: Boolean(sourceName),
-    sourceKind: sourceName ? 'present' : undefined,
+    hasSource: Boolean(sourceName ?? sourceApp ?? sourceKey ?? deviceName ?? sourceBundleId ?? sourceKind),
+    sourceKind: sourceKind ?? (sourceName ? 'present' : undefined),
     source: sourceName,
     sourceName,
+    deviceName,
+    sourceBundleId,
   }
 }
 

@@ -9,6 +9,7 @@ import {
   parseHealthAutoExportJson,
 } from './healthAutoExportJsonAuditor'
 import { normalizeHealthAutoExportSleepRows } from './healthAutoExportJsonNormalizer'
+import { resolveSleepSource } from '../source/resolveSleepSource'
 
 const DB_NAME = 'sleep-improvement-app'
 const DB_VERSION = 1
@@ -152,7 +153,7 @@ function getDuplicateKey(record: SleepRecord): string {
     record.end ?? record.endDate ?? '',
     record.stage ?? '',
     record.originalValue ?? '',
-    record.sourceApp ?? '',
+    resolveSleepSource(record).sourceKey,
   ].join('|')
 }
 

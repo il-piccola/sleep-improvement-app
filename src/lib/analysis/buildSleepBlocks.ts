@@ -1,9 +1,12 @@
 import type { AnalysisConfig, SleepBlock, SleepRecord, SleepRecordKind } from '../../types/sleep'
 import { normalizeAnalysisConfig } from '../../types/sleep'
+import { resolveSleepSource } from '../source/resolveSleepSource'
 
 type TimedRecord = {
   record: SleepRecord
   kind: SleepRecordKind
+  sourceKey: string
+  sourceLabel: string
   start: Date | null
   end: Date | null
   durationMinutes: number
@@ -23,9 +26,9 @@ export function buildSleepBlocks(
   const blocks: SleepBlock[] = []
 
   for (const timedRecord of timedRecords) {
-    const previous = blocks.at(-1)
+    const previous = findMergeTarget(blocks, timedRecord, normalizedConfig)
 
-    if (previous && canMerge(previous, timedRecord, normalizedConfig)) {
+    if (previous) {
       mergeIntoBlock(previous, timedRecord)
       continue
     }
@@ -33,7 +36,7 @@ export function buildSleepBlocks(
     blocks.push(createBlock(timedRecord, blocks.length))
   }
 
-  return blocks
+  return blocks.sort(compareBlocks)
 }
 
 function toTimedRecord(record: SleepRecord): TimedRecord {
@@ -47,6 +50,7 @@ function toTimedRecord(record: SleepRecord): TimedRecord {
   return {
     record,
     kind: getSleepRecordKind(record.stage ?? record.value),
+    ...resolveSleepSource(record),
     start,
     end,
     durationMinutes,
@@ -93,16 +97,44 @@ function canMerge(
     return false
   }
 
+  if (!block.sourceKeys.includes(timedRecord.sourceKey)) {
+    return false
+  }
+
   const blockEnd = new Date(block.endDate)
   const gapMinutes = (timedRecord.start.getTime() - blockEnd.getTime()) / 60_000
 
   return gapMinutes >= 0 && gapMinutes <= config.mergeGapMinutes
 }
 
+function findMergeTarget(
+  blocks: SleepBlock[],
+  timedRecord: TimedRecord,
+  config: AnalysisConfig,
+): SleepBlock | undefined {
+  return [...blocks]
+    .reverse()
+    .find((block) => block.sourceKeys.includes(timedRecord.sourceKey) && canMerge(block, timedRecord, config))
+}
+
+function compareBlocks(left: SleepBlock, right: SleepBlock): number {
+  if (left.startDate && right.startDate) {
+    return Date.parse(left.startDate) - Date.parse(right.startDate)
+  }
+
+  if (left.dayIndex !== null && right.dayIndex !== null) {
+    return left.dayIndex - right.dayIndex
+  }
+
+  return left.id.localeCompare(right.id)
+}
+
 function createBlock(timedRecord: TimedRecord, index: number): SleepBlock {
   return {
     id: `sleep-block-${index + 1}`,
     sourceRecordIds: [timedRecord.record.id],
+    sourceKeys: [timedRecord.sourceKey],
+    sourceLabels: [timedRecord.sourceLabel],
     recordKinds: [timedRecord.kind],
     values: [timedRecord.record.value],
     startDate: timedRecord.start?.toISOString() ?? null,
@@ -118,6 +150,14 @@ function createBlock(timedRecord: TimedRecord, index: number): SleepBlock {
 function mergeIntoBlock(block: SleepBlock, timedRecord: TimedRecord): void {
   block.sourceRecordIds.push(timedRecord.record.id)
   block.values.push(timedRecord.record.value)
+
+  if (!block.sourceKeys.includes(timedRecord.sourceKey)) {
+    block.sourceKeys.push(timedRecord.sourceKey)
+  }
+
+  if (!block.sourceLabels.includes(timedRecord.sourceLabel)) {
+    block.sourceLabels.push(timedRecord.sourceLabel)
+  }
 
   if (!block.recordKinds.includes(timedRecord.kind)) {
     block.recordKinds.push(timedRecord.kind)
