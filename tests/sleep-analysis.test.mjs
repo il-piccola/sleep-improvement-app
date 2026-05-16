@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createServer } from 'vite'
 
 const server = await createServer({
@@ -26,6 +29,16 @@ const {
   toSourceUseSetting,
   upsertSourcePreference,
 } = await server.ssrLoadModule('/src/lib/source/sourcePreferences.ts')
+const {
+  defaultHealthImportConfig,
+  loadHealthImportConfig,
+  parseEnv,
+  toChokidarOptions,
+} = await import('../scripts/healthImportConfig.mjs')
+const {
+  getRecordDuplicateKeys,
+  mergeAndAnalyzeSleepRecords,
+} = await server.ssrLoadModule('/server/healthStore.ts')
 
 try {
   await runAllCases()
@@ -79,6 +92,12 @@ async function runAllCases() {
   testSourcePreferencePersistsAcrossReload()
   testSourcePreferenceRecalculatesAnomalyChecks()
   testSourcePreferencePartialOverlapStillNotDoubleCounted()
+  testHealthImportConfigUsesDefaultsWithoutEnvLocal()
+  testHealthImportConfigCanBeOverriddenByEnv()
+  testHealthImportConfigBuildsChokidarOptions()
+  await testServerStoreSkipsSameRecordsWhenFileIsReprocessed()
+  await testServerStoreSkipsUnknownSourceDuplicateAcrossFiles()
+  testServerDuplicateKeysForUnknownSourceIncludeFallbackKeys()
   await testSourceKeyGeneration()
   testNormalizeSleepFileAddsSourceKeys()
   await testUnknownSourceKeysUseFileContext()
@@ -408,6 +427,160 @@ function testSourcePreferencePartialOverlapStillNotDoubleCounted() {
 
   assert.equal(timeline.comparison.pendingOverlapCount, 1)
   assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 240)
+}
+
+function testHealthImportConfigUsesDefaultsWithoutEnvLocal() {
+  const config = loadHealthImportConfig({
+    cwd: 'Z:\\path-that-does-not-exist',
+    env: {},
+  })
+
+  assert.deepEqual(config, defaultHealthImportConfig)
+}
+
+function testHealthImportConfigCanBeOverriddenByEnv() {
+  const config = loadHealthImportConfig({
+    cwd: 'Z:\\path-that-does-not-exist',
+    env: {
+      HEALTH_EXPORT_WATCH_DIR: 'D:\\Health\\Sleep',
+      HEALTH_IMPORT_SERVER_PORT: '9999',
+      HEALTH_IMPORT_SCAN_INTERVAL_MS: '60000',
+      HEALTH_IMPORT_USE_POLLING: 'false',
+      HEALTH_IMPORT_POLL_INTERVAL_MS: '2000',
+      HEALTH_IMPORT_AWAIT_WRITE_STABILITY_MS: '3000',
+    },
+  })
+  const parsed = parseEnv('HEALTH_EXPORT_WATCH_DIR=\"E:\\\\Sleep Export\"\nHEALTH_IMPORT_USE_POLLING=yes')
+
+  assert.equal(config.watchDir, 'D:\\Health\\Sleep')
+  assert.equal(config.serverPort, 9999)
+  assert.equal(config.scanIntervalMs, 60_000)
+  assert.equal(config.usePolling, false)
+  assert.equal(config.pollIntervalMs, 2_000)
+  assert.equal(config.awaitWriteStabilityMs, 3_000)
+  assert.equal(parsed.HEALTH_EXPORT_WATCH_DIR, 'E:\\\\Sleep Export')
+  assert.equal(parsed.HEALTH_IMPORT_USE_POLLING, 'yes')
+}
+
+function testHealthImportConfigBuildsChokidarOptions() {
+  const options = toChokidarOptions({
+    ...defaultHealthImportConfig,
+    usePolling: true,
+    pollIntervalMs: 4_000,
+    awaitWriteStabilityMs: 10_000,
+  })
+
+  assert.equal(options.usePolling, true)
+  assert.equal(options.interval, 4_000)
+  assert.equal(options.awaitWriteFinish.stabilityThreshold, 10_000)
+  assert.equal(options.awaitWriteFinish.pollInterval, 4_000)
+}
+
+async function testServerStoreSkipsSameRecordsWhenFileIsReprocessed() {
+  const dataDir = await mkdtemp(join(tmpdir(), 'sleep-store-'))
+
+  try {
+    const record = {
+      ...sourceRecord('watch-core', 'apple_watch', 'Apple Watch', '2026-05-15T03:00:00+09:00', '2026-05-15T04:00:00+09:00', 'asleep_core'),
+      originalValue: 'Core',
+      sourceFormat: 'health_auto_export_json',
+      sourceFile: 'night-a.json',
+    }
+    const first = await mergeAndAnalyzeSleepRecords({
+      dataDir,
+      records: [record],
+      sourceFile: 'night-a.json',
+      warnings: ['注意'],
+      rejectedRows: 2,
+    })
+    const second = await mergeAndAnalyzeSleepRecords({
+      dataDir,
+      records: [record],
+      sourceFile: 'night-a.json',
+      warnings: [],
+      rejectedRows: 0,
+    })
+
+    assert.equal(first.latestImport?.readFileCount, 1)
+    assert.equal(first.latestImport?.newRecordCount, 1)
+    assert.equal(first.latestImport?.rejectedRows, 2)
+    assert.equal(first.latestImport?.warningCount, 1)
+    assert.equal(second.records.length, 1)
+    assert.equal(second.latestImport?.newRecordCount, 0)
+    assert.equal(second.latestImport?.duplicateSkippedCount, 1)
+  } finally {
+    await rm(dataDir, { recursive: true, force: true })
+  }
+}
+
+async function testServerStoreSkipsUnknownSourceDuplicateAcrossFiles() {
+  const dataDir = await mkdtemp(join(tmpdir(), 'sleep-store-'))
+
+  try {
+    const firstRecord = {
+      ...sourceRecord(
+        'unknown-a',
+        'unknown_source:health_auto_export_json:night_a_json',
+        '不明なソース',
+        '2026-05-15T03:00:00+09:00',
+        '2026-05-15T04:00:00+09:00',
+        'asleep_core',
+      ),
+      originalValue: 'Core',
+      sourceFormat: 'health_auto_export_json',
+      sourceFile: 'night-a.json',
+    }
+    const secondRecord = {
+      ...firstRecord,
+      id: 'unknown-b',
+      sourceKey: 'unknown_source:health_auto_export_json:night_b_json',
+      sourceFile: 'night-b.json',
+      originalValue: 'HKCategoryValueSleepAnalysisAsleepCore',
+    }
+
+    await mergeAndAnalyzeSleepRecords({
+      dataDir,
+      records: [firstRecord],
+      sourceFile: 'night-a.json',
+      warnings: [],
+      rejectedRows: 0,
+    })
+    const second = await mergeAndAnalyzeSleepRecords({
+      dataDir,
+      records: [secondRecord],
+      sourceFile: 'night-b.json',
+      warnings: [],
+      rejectedRows: 0,
+    })
+
+    assert.equal(second.records.length, 1)
+    assert.equal(second.latestImport?.newRecordCount, 0)
+    assert.equal(second.latestImport?.duplicateSkippedCount, 1)
+  } finally {
+    await rm(dataDir, { recursive: true, force: true })
+  }
+}
+
+function testServerDuplicateKeysForUnknownSourceIncludeFallbackKeys() {
+  const keys = getRecordDuplicateKeys({
+    ...sourceRecord(
+      'unknown',
+      'unknown_source:health_auto_export_json:file_a_json',
+      '不明なソース',
+      '2026-05-15T03:00:00+09:00',
+      '2026-05-15T04:00:00+09:00',
+      'asleep_core',
+    ),
+    sourceFormat: 'health_auto_export_json',
+    sourceFile: 'file-a.json',
+    originalValue: 'Core',
+  })
+
+  assert.equal(keys.length, 4)
+  assert.ok(keys.some((key) => key.startsWith('exact|unknown_source')))
+  assert.ok(keys.some((key) => key.startsWith('unknown-cross-file|health_auto_export_json')))
+  assert.ok(keys.some((key) => key.startsWith('unknown-cross-file-stage|health_auto_export_json')))
+  assert.ok(keys.some((key) => key.startsWith('unknown-file-scoped|health_auto_export_json|file-a.json')))
 }
 
 function testSourceQualityHighQuality() {

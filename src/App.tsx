@@ -59,6 +59,30 @@ type SleepDataFile = {
   warnings: string[]
 }
 
+type LocalImportStatus = {
+  connected: boolean
+  isWatching?: boolean
+  watchDir?: string
+  scanIntervalMs?: number
+  usePolling?: boolean
+  pollIntervalMs?: number
+  awaitWriteStabilityMs?: number
+  lastScanAt?: string | null
+  lastImportedAt?: string | null
+  lastProcessedFileName?: string | null
+  lastError?: string | null
+  latestImport?: {
+    importedFileName: string
+    importedAt: string
+    readFileCount: number
+    normalizedCount: number
+    newRecordCount: number
+    duplicateSkippedCount: number
+    rejectedRows: number
+    warningCount: number
+  } | null
+}
+
 type DayMetrics = {
   mainSleep: ClassifiedSleepBlock | null
   napBlocks: ClassifiedSleepBlock[]
@@ -106,6 +130,8 @@ const screens: Array<{ id: AppScreen; label: string }> = [
 ]
 
 const SETTINGS_STORAGE_KEY = 'sleep-improvement.analysis-config'
+const LOCAL_IMPORT_SERVER_URL =
+  import.meta.env.VITE_HEALTH_IMPORT_SERVER_URL ?? 'http://localhost:8787'
 
 function App() {
   const [activeScreen, setActiveScreen] = useState<AppScreen>('dashboard')
@@ -119,6 +145,9 @@ function App() {
   )
   const [fileStatus, setFileStatus] = useState('匿名サンプルを使用中')
   const [timelineView, setTimelineView] = useState<'unified' | 'raw'>('unified')
+  const [localImportStatus, setLocalImportStatus] = useState<LocalImportStatus>({
+    connected: false,
+  })
 
   const analysis = useMemo(() => {
     const rawBlocks = buildSleepBlocks(sleepData.records, config)
@@ -167,6 +196,41 @@ function App() {
     saveStoredSourcePreferences(sourcePreferences)
   }, [sourcePreferences])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const refresh = async () => {
+      const result = await fetchLocalServerData()
+
+      if (cancelled) {
+        return
+      }
+
+      setLocalImportStatus(result.status)
+
+      if (result.records.length > 0) {
+        setSleepData({
+          generatedAt: result.generatedAt ?? result.status.latestImport?.importedAt,
+          sourceKind: 'health_auto_export_json',
+          inputFileName: result.status.latestImport?.importedFileName,
+          records: result.records,
+          warnings: result.warnings,
+        })
+        setFileStatus('ローカル自動取り込みサーバーから最新データを取得しました')
+      }
+    }
+
+    void refresh()
+    const timer = window.setInterval(() => {
+      void refresh()
+    }, 60_000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
       return
@@ -192,6 +256,22 @@ function App() {
   }
 
   const visibleSummaries = timelineView === 'unified' ? analysis.summaries : analysis.rawSummaries
+  const handleLocalRescan = async () => {
+    const status = await requestLocalRescan()
+    setLocalImportStatus(status)
+    const result = await fetchLocalServerData()
+    setLocalImportStatus(result.status)
+    if (result.records.length > 0) {
+      setSleepData({
+        generatedAt: result.generatedAt ?? result.status.latestImport?.importedAt,
+        sourceKind: 'health_auto_export_json',
+        inputFileName: result.status.latestImport?.importedFileName,
+        records: result.records,
+        warnings: result.warnings,
+      })
+      setFileStatus('手動再スキャンで最新データを取得しました')
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -259,7 +339,9 @@ function App() {
         <TodaySleep
           actions={analysis.actions}
           importedAt={sleepData.generatedAt}
+          localImportStatus={localImportStatus}
           metrics={analysis.latestMetrics}
+          onRescan={handleLocalRescan}
           summary={analysis.latestSummary}
         />
       )}
@@ -298,6 +380,7 @@ function App() {
       {activeScreen === 'import' && (
         <FileImport
           fileStatus={fileStatus}
+          localImportStatus={localImportStatus}
           onHealthAutoExportImported={(result) => {
             setSleepData(toSleepDataFile(result))
             setFileStatus(
@@ -306,6 +389,7 @@ function App() {
             setActiveScreen('dashboard')
           }}
           onFileChange={handleFileChange}
+          onRescan={handleLocalRescan}
           onUseSample={() => {
             setSleepData({
               ...sampleSleepData,
@@ -328,6 +412,72 @@ function toSleepDataFile(result: HealthAutoExportImportResult): SleepDataFile {
     warnings: result.audit.messages
       .filter((message) => message.severity !== 'info')
       .map((message) => message.message),
+  }
+}
+
+async function fetchLocalServerData(): Promise<{
+  generatedAt?: string
+  records: SleepRecord[]
+  warnings: string[]
+  status: LocalImportStatus
+}> {
+  try {
+    const [recordsResponse, statusResponse] = await Promise.all([
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/health-records`),
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/import-status`),
+    ])
+
+    if (!recordsResponse.ok || !statusResponse.ok) {
+      throw new Error('ローカル自動取り込みサーバーに接続できません。')
+    }
+
+    const recordsPayload = (await recordsResponse.json()) as {
+      generatedAt?: string
+      records?: SleepRecord[]
+      warnings?: string[]
+    }
+    const statusPayload = (await statusResponse.json()) as Omit<LocalImportStatus, 'connected'>
+
+    return {
+      generatedAt: recordsPayload.generatedAt,
+      records: Array.isArray(recordsPayload.records) ? recordsPayload.records : [],
+      warnings: Array.isArray(recordsPayload.warnings) ? recordsPayload.warnings : [],
+      status: {
+        ...statusPayload,
+        connected: true,
+      },
+    }
+  } catch {
+    return {
+      records: [],
+      warnings: [],
+      status: {
+        connected: false,
+      },
+    }
+  }
+}
+
+async function requestLocalRescan(): Promise<LocalImportStatus> {
+  try {
+    const response = await fetch(`${LOCAL_IMPORT_SERVER_URL}/api/rescan`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error('再スキャンに失敗しました。')
+    }
+
+    const payload = (await response.json()) as Omit<LocalImportStatus, 'connected'>
+    return {
+      ...payload,
+      connected: true,
+    }
+  } catch (error) {
+    return {
+      connected: false,
+      lastError: error instanceof Error ? error.message : '再スキャンに失敗しました。',
+    }
   }
 }
 
@@ -558,12 +708,16 @@ function DataDiagnosis({
 function TodaySleep({
   actions,
   importedAt,
+  localImportStatus,
   metrics,
+  onRescan,
   summary,
 }: {
   actions: ImprovementAction[]
   importedAt?: string
+  localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
+  onRescan: () => Promise<void>
   summary: SleepDaySummary | null
 }) {
   if (!summary || !metrics) {
@@ -611,6 +765,85 @@ function TodaySleep({
         <Metric label="最終起床時刻" value={metrics.finalWakeTime} />
         <Metric label="睡眠中央時刻" value={metrics.sleepMidpoint} />
       </div>
+
+      <section className="today-actions-panel import-status-panel">
+        <div className="section-head-row">
+          <h2>自動取り込み</h2>
+          <button className="secondary-button" onClick={() => void onRescan()} type="button">
+            手動再スキャン
+          </button>
+        </div>
+        <div className="diagnosis-list import-summary">
+          <StatusRow
+            label="自動取り込み"
+            value={localImportStatus.connected && localImportStatus.isWatching ? '有効' : '無効'}
+          />
+          <StatusRow label="監視フォルダ" value={localImportStatus.watchDir ?? '未取得'} />
+          <StatusRow
+            label="定期スキャン間隔"
+            value={formatMilliseconds(localImportStatus.scanIntervalMs)}
+          />
+          <StatusRow
+            label="chokidarポーリング"
+            value={localImportStatus.usePolling ? '使用中' : '未使用'}
+          />
+          <StatusRow
+            label="chokidarポーリング間隔"
+            value={formatMilliseconds(localImportStatus.pollIntervalMs)}
+          />
+          <StatusRow
+            label="書き込み完了待ち時間"
+            value={formatMilliseconds(localImportStatus.awaitWriteStabilityMs)}
+          />
+          <StatusRow
+            label="最終スキャン"
+            value={formatDateTime(localImportStatus.lastScanAt ?? undefined)}
+          />
+          <StatusRow
+            label="最終取り込み"
+            value={formatDateTime(localImportStatus.lastImportedAt ?? undefined)}
+          />
+          <StatusRow
+            label="最後に処理したファイル"
+            value={localImportStatus.lastProcessedFileName ?? 'なし'}
+          />
+          <StatusRow
+            label="定期スキャン間隔"
+            value={formatMilliseconds(localImportStatus.scanIntervalMs)}
+          />
+          <StatusRow
+            label="chokidarポーリング間隔"
+            value={formatMilliseconds(localImportStatus.pollIntervalMs)}
+          />
+          <StatusRow
+            label="書き込み完了待ち時間"
+            value={formatMilliseconds(localImportStatus.awaitWriteStabilityMs)}
+          />
+          <StatusRow
+            label="読み込んだファイル"
+            value={`${localImportStatus.latestImport?.readFileCount ?? 0}件`}
+          />
+          <StatusRow
+            label="新規追加レコード"
+            value={`${localImportStatus.latestImport?.newRecordCount ?? 0}件`}
+          />
+          <StatusRow
+            label="重複スキップ"
+            value={`${localImportStatus.latestImport?.duplicateSkippedCount ?? 0}件`}
+          />
+          <StatusRow
+            label="変換失敗"
+            value={`${localImportStatus.latestImport?.rejectedRows ?? 0}件`}
+          />
+          <StatusRow
+            label="警告"
+            value={`${localImportStatus.latestImport?.warningCount ?? 0}件`}
+          />
+        </div>
+        {localImportStatus.lastError && (
+          <p className="import-error">{localImportStatus.lastError}</p>
+        )}
+      </section>
 
       <section className="today-actions-panel">
         <h2>今日の改善アクション</h2>
@@ -971,13 +1204,17 @@ function SourceSettings({
 
 function FileImport({
   fileStatus,
+  localImportStatus,
   onHealthAutoExportImported,
   onFileChange,
+  onRescan,
   onUseSample,
 }: {
   fileStatus: string
+  localImportStatus: LocalImportStatus
   onHealthAutoExportImported: Parameters<typeof HealthAutoExportImportPanel>[0]['onImported']
   onFileChange: (file: File | undefined) => void
+  onRescan: () => Promise<void>
   onUseSample: () => void
 }) {
   return (
@@ -985,6 +1222,52 @@ function FileImport({
       <HealthAutoExportImportPanel onImported={onHealthAutoExportImported} />
 
       <div className="screen-grid">
+      <Panel title="自動取り込み">
+        <div className="diagnosis-list import-summary">
+          <StatusRow
+            label="ローカルサーバー"
+            value={localImportStatus.connected ? '接続中' : '未接続'}
+          />
+          <StatusRow label="監視フォルダ" value={localImportStatus.watchDir ?? '未取得'} />
+          <StatusRow
+            label="最後に処理したJSON"
+            value={localImportStatus.lastProcessedFileName ?? 'なし'}
+          />
+          <StatusRow
+            label="最終取り込み"
+            value={formatDateTime(localImportStatus.lastImportedAt ?? undefined)}
+          />
+          <StatusRow
+            label="読み込んだファイル"
+            value={`${localImportStatus.latestImport?.readFileCount ?? 0}件`}
+          />
+          <StatusRow
+            label="新規追加件数"
+            value={`${localImportStatus.latestImport?.newRecordCount ?? 0}件`}
+          />
+          <StatusRow
+            label="重複スキップ件数"
+            value={`${localImportStatus.latestImport?.duplicateSkippedCount ?? 0}件`}
+          />
+          <StatusRow
+            label="変換失敗件数"
+            value={`${localImportStatus.latestImport?.rejectedRows ?? 0}件`}
+          />
+          <StatusRow
+            label="警告件数"
+            value={`${localImportStatus.latestImport?.warningCount ?? 0}件`}
+          />
+        </div>
+        {localImportStatus.lastError && (
+          <p className="import-error">{localImportStatus.lastError}</p>
+        )}
+        <button className="secondary-button" onClick={() => void onRescan()} type="button">
+          手動再スキャン
+        </button>
+        <p className="muted">
+          自動取り込みサーバーはローカルPC内だけでHealth Auto Export JSONを監査・正規化します。JSON原文は保存しません。
+        </p>
+      </Panel>
       <Panel title="ファイル読み込み">
         <label className="file-drop">
           <span>normalized JSON / AppleヘルスXML</span>
@@ -1406,6 +1689,21 @@ function formatMinutes(minutes: number): string {
   }
 
   return `${hours}時間${remainingMinutes}分`
+}
+
+function formatMilliseconds(milliseconds: number | undefined): string {
+  if (!milliseconds || milliseconds <= 0) {
+    return '未取得'
+  }
+
+  const seconds = Math.round(milliseconds / 1000)
+
+  if (seconds < 60) {
+    return `${seconds}秒`
+  }
+
+  const minutes = Math.round(seconds / 60)
+  return `${minutes}分`
 }
 
 function formatTimeRange(block: SleepBlock): string {

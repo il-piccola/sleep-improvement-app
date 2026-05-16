@@ -254,6 +254,27 @@
   letter-spacing: 0;
 }
 
+.section-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-head-row h2 {
+  margin: 0;
+  color: #151719;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.import-status-panel {
+  display: grid;
+  gap: 12px;
+}
+
 .today-action-list {
   display: grid;
   gap: 12px;
