@@ -2,3 +2,6 @@
 .env.local
 dist
 node_modules
+service-account*.json
+*-service-account.json
+google-application-credentials*.json

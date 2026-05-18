@@ -10,5 +10,5 @@ export type IngestBatchDocument = {
   addedCount: number
   skippedDuplicateCount: number
   userId: string
-  cloudRun: true
+  cloudRun: boolean
 }

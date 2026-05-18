@@ -47,7 +47,7 @@ export async function handleHealthAutoExportIngest(
     await saveIngestBatch(batch)
   } catch (error) {
     if (error instanceof FirestoreSaveError) {
-      sendSafeError(response, 503, error.message)
+      sendSafeError(response, 500, error.message)
       return
     }
 
