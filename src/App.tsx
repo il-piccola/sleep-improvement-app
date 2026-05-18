@@ -12,6 +12,7 @@ import { generateImprovementActions } from './lib/analysis/generateImprovementAc
 import { checkDataQuality } from './lib/analysis/checkDataQuality'
 import { evaluateSourceQuality } from './lib/analysis/evaluateSourceQuality'
 import { buildUnifiedSleepTimeline } from './lib/analysis/buildUnifiedSleepTimeline'
+import { selectTodaySleepSummary } from './lib/analysis/selectTodaySleepSummary'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
 import { resolveSleepSource } from './lib/source/resolveSleepSource'
 import {
@@ -167,8 +168,11 @@ function App() {
       unifiedTimeline,
       sourcePreferences,
     )
-    const latestSummary = summaries.at(-1) ?? null
-    const latestMetrics = latestSummary ? getDayMetrics(latestSummary) : null
+    const todaySelection = selectTodaySleepSummary(summaries, config)
+    const latestSummary = todaySelection.latestSummary
+    const todaySummary = todaySelection.todaySummary
+    const todayMetrics = todaySummary ? getDayMetrics(todaySummary) : null
+    const todayActions = todaySummary ? generateImprovementActions([todaySummary], config) : []
 
     return {
       blocks: unifiedTimeline.blocks,
@@ -183,8 +187,11 @@ function App() {
       sourceQuality,
       sourceDetails,
       unifiedTimeline,
+      targetSleepDayKey: todaySelection.targetSleepDayKey,
       latestSummary,
-      latestMetrics,
+      todaySummary,
+      todayMetrics,
+      todayActions,
     }
   }, [config, sleepData, sourcePreferences])
 
@@ -324,6 +331,8 @@ function App() {
         <DataDiagnosis
           fileStatus={fileStatus}
           inputFileName={sleepData.inputFileName}
+          localImportStatus={localImportStatus}
+          onRescan={handleLocalRescan}
           recordCount={sleepData.records.length}
           report={analysis.dataQuality}
           sourceKind={sleepData.sourceKind}
@@ -337,12 +346,11 @@ function App() {
 
       {activeScreen === 'dashboard' && (
         <TodaySleep
-          actions={analysis.actions}
+          actions={analysis.todayActions}
           importedAt={sleepData.generatedAt}
-          localImportStatus={localImportStatus}
-          metrics={analysis.latestMetrics}
-          onRescan={handleLocalRescan}
-          summary={analysis.latestSummary}
+          metrics={analysis.todayMetrics}
+          summary={analysis.todaySummary}
+          targetSleepDayKey={analysis.targetSleepDayKey}
         />
       )}
 
@@ -380,7 +388,6 @@ function App() {
       {activeScreen === 'import' && (
         <FileImport
           fileStatus={fileStatus}
-          localImportStatus={localImportStatus}
           onHealthAutoExportImported={(result) => {
             setSleepData(toSleepDataFile(result))
             setFileStatus(
@@ -389,7 +396,6 @@ function App() {
             setActiveScreen('dashboard')
           }}
           onFileChange={handleFileChange}
-          onRescan={handleLocalRescan}
           onUseSample={() => {
             setSleepData({
               ...sampleSleepData,
@@ -484,6 +490,8 @@ async function requestLocalRescan(): Promise<LocalImportStatus> {
 function DataDiagnosis({
   fileStatus,
   inputFileName,
+  localImportStatus,
+  onRescan,
   recordCount,
   report,
   sourceKind,
@@ -495,6 +503,8 @@ function DataDiagnosis({
 }: {
   fileStatus: string
   inputFileName?: string
+  localImportStatus: LocalImportStatus
+  onRescan: () => Promise<void>
   recordCount: number
   report: DataQualityReport
   sourceKind?: string
@@ -552,6 +562,7 @@ function DataDiagnosis({
           ))}
         </ul>
       </Panel>
+      <AutoImportStatusPanel localImportStatus={localImportStatus} onRescan={onRescan} />
       <Panel title="ソース間の重なり">
         <p className="muted">
           統合前の確認です。ここでは候補を表示するだけで、睡眠データは削除しません。
@@ -708,20 +719,43 @@ function DataDiagnosis({
 function TodaySleep({
   actions,
   importedAt,
-  localImportStatus,
   metrics,
-  onRescan,
   summary,
+  targetSleepDayKey,
 }: {
   actions: ImprovementAction[]
   importedAt?: string
-  localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
-  onRescan: () => Promise<void>
   summary: SleepDaySummary | null
+  targetSleepDayKey: string
 }) {
   if (!summary || !metrics) {
-    return <EmptyState title="表示できる睡眠データがありません" />
+    return (
+      <section className="today-screen">
+        <div className="today-hero">
+          <div>
+            <p className="eyebrow">今日の睡眠</p>
+            <h2>{targetSleepDayKey}</h2>
+            <p>
+              最終取り込み: <strong>{formatDateTime(importedAt)}</strong>
+            </p>
+          </div>
+          <div className="today-total">
+            <span>総睡眠時間</span>
+            <strong>今日のデータなし</strong>
+          </div>
+        </div>
+        <article className="morning-action">
+          <span>今日のデータ</span>
+          <h2>対象の睡眠日データがありません</h2>
+          <p>
+            18:00から翌18:00までを1つの睡眠日として見ています。対象の睡眠日
+            {targetSleepDayKey}
+            のデータが取り込まれていないため、古い睡眠日は今日の睡眠として表示しません。
+          </p>
+        </article>
+      </section>
+    )
   }
 
   const primaryAction = actions[0]
@@ -766,85 +800,6 @@ function TodaySleep({
         <Metric label="睡眠中央時刻" value={metrics.sleepMidpoint} />
       </div>
 
-      <section className="today-actions-panel import-status-panel">
-        <div className="section-head-row">
-          <h2>自動取り込み</h2>
-          <button className="secondary-button" onClick={() => void onRescan()} type="button">
-            手動再スキャン
-          </button>
-        </div>
-        <div className="diagnosis-list import-summary">
-          <StatusRow
-            label="自動取り込み"
-            value={localImportStatus.connected && localImportStatus.isWatching ? '有効' : '無効'}
-          />
-          <StatusRow label="監視フォルダ" value={localImportStatus.watchDir ?? '未取得'} />
-          <StatusRow
-            label="定期スキャン間隔"
-            value={formatMilliseconds(localImportStatus.scanIntervalMs)}
-          />
-          <StatusRow
-            label="chokidarポーリング"
-            value={localImportStatus.usePolling ? '使用中' : '未使用'}
-          />
-          <StatusRow
-            label="chokidarポーリング間隔"
-            value={formatMilliseconds(localImportStatus.pollIntervalMs)}
-          />
-          <StatusRow
-            label="書き込み完了待ち時間"
-            value={formatMilliseconds(localImportStatus.awaitWriteStabilityMs)}
-          />
-          <StatusRow
-            label="最終スキャン"
-            value={formatDateTime(localImportStatus.lastScanAt ?? undefined)}
-          />
-          <StatusRow
-            label="最終取り込み"
-            value={formatDateTime(localImportStatus.lastImportedAt ?? undefined)}
-          />
-          <StatusRow
-            label="最後に処理したファイル"
-            value={localImportStatus.lastProcessedFileName ?? 'なし'}
-          />
-          <StatusRow
-            label="定期スキャン間隔"
-            value={formatMilliseconds(localImportStatus.scanIntervalMs)}
-          />
-          <StatusRow
-            label="chokidarポーリング間隔"
-            value={formatMilliseconds(localImportStatus.pollIntervalMs)}
-          />
-          <StatusRow
-            label="書き込み完了待ち時間"
-            value={formatMilliseconds(localImportStatus.awaitWriteStabilityMs)}
-          />
-          <StatusRow
-            label="読み込んだファイル"
-            value={`${localImportStatus.latestImport?.readFileCount ?? 0}件`}
-          />
-          <StatusRow
-            label="新規追加レコード"
-            value={`${localImportStatus.latestImport?.newRecordCount ?? 0}件`}
-          />
-          <StatusRow
-            label="重複スキップ"
-            value={`${localImportStatus.latestImport?.duplicateSkippedCount ?? 0}件`}
-          />
-          <StatusRow
-            label="変換失敗"
-            value={`${localImportStatus.latestImport?.rejectedRows ?? 0}件`}
-          />
-          <StatusRow
-            label="警告"
-            value={`${localImportStatus.latestImport?.warningCount ?? 0}件`}
-          />
-        </div>
-        {localImportStatus.lastError && (
-          <p className="import-error">{localImportStatus.lastError}</p>
-        )}
-      </section>
-
       <section className="today-actions-panel">
         <h2>今日の改善アクション</h2>
         <div className="today-action-list">
@@ -859,6 +814,83 @@ function TodaySleep({
           ))}
         </div>
       </section>
+    </section>
+  )
+}
+
+function AutoImportStatusPanel({
+  localImportStatus,
+  onRescan,
+}: {
+  localImportStatus: LocalImportStatus
+  onRescan: () => Promise<void>
+}) {
+  return (
+    <section className="today-actions-panel import-status-panel">
+      <div className="section-head-row">
+        <h2>自動取り込み</h2>
+        <button className="secondary-button" onClick={() => void onRescan()} type="button">
+          手動再スキャン
+        </button>
+      </div>
+      <div className="diagnosis-list import-summary">
+        <StatusRow
+          label="自動取り込み"
+          value={localImportStatus.connected && localImportStatus.isWatching ? '有効' : '無効'}
+        />
+        <StatusRow label="監視フォルダ" value={localImportStatus.watchDir ?? '未取得'} />
+        <StatusRow
+          label="定期スキャン間隔"
+          value={formatMilliseconds(localImportStatus.scanIntervalMs)}
+        />
+        <StatusRow
+          label="chokidarポーリング"
+          value={localImportStatus.usePolling ? '使用中' : '未使用'}
+        />
+        <StatusRow
+          label="chokidarポーリング間隔"
+          value={formatMilliseconds(localImportStatus.pollIntervalMs)}
+        />
+        <StatusRow
+          label="書き込み完了待ち時間"
+          value={formatMilliseconds(localImportStatus.awaitWriteStabilityMs)}
+        />
+        <StatusRow
+          label="最終スキャン"
+          value={formatDateTime(localImportStatus.lastScanAt ?? undefined)}
+        />
+        <StatusRow
+          label="最終取り込み"
+          value={formatDateTime(localImportStatus.lastImportedAt ?? undefined)}
+        />
+        <StatusRow
+          label="最後に処理したファイル"
+          value={localImportStatus.lastProcessedFileName ?? 'なし'}
+        />
+        <StatusRow
+          label="読み込んだファイル"
+          value={`${localImportStatus.latestImport?.readFileCount ?? 0}件`}
+        />
+        <StatusRow
+          label="新規追加レコード"
+          value={`${localImportStatus.latestImport?.newRecordCount ?? 0}件`}
+        />
+        <StatusRow
+          label="重複スキップ"
+          value={`${localImportStatus.latestImport?.duplicateSkippedCount ?? 0}件`}
+        />
+        <StatusRow
+          label="変換失敗"
+          value={`${localImportStatus.latestImport?.rejectedRows ?? 0}件`}
+        />
+        <StatusRow
+          label="警告"
+          value={`${localImportStatus.latestImport?.warningCount ?? 0}件`}
+        />
+      </div>
+      {localImportStatus.lastError && (
+        <p className="import-error">{localImportStatus.lastError}</p>
+      )}
     </section>
   )
 }
@@ -1204,17 +1236,13 @@ function SourceSettings({
 
 function FileImport({
   fileStatus,
-  localImportStatus,
   onHealthAutoExportImported,
   onFileChange,
-  onRescan,
   onUseSample,
 }: {
   fileStatus: string
-  localImportStatus: LocalImportStatus
   onHealthAutoExportImported: Parameters<typeof HealthAutoExportImportPanel>[0]['onImported']
   onFileChange: (file: File | undefined) => void
-  onRescan: () => Promise<void>
   onUseSample: () => void
 }) {
   return (
@@ -1222,52 +1250,6 @@ function FileImport({
       <HealthAutoExportImportPanel onImported={onHealthAutoExportImported} />
 
       <div className="screen-grid">
-      <Panel title="自動取り込み">
-        <div className="diagnosis-list import-summary">
-          <StatusRow
-            label="ローカルサーバー"
-            value={localImportStatus.connected ? '接続中' : '未接続'}
-          />
-          <StatusRow label="監視フォルダ" value={localImportStatus.watchDir ?? '未取得'} />
-          <StatusRow
-            label="最後に処理したJSON"
-            value={localImportStatus.lastProcessedFileName ?? 'なし'}
-          />
-          <StatusRow
-            label="最終取り込み"
-            value={formatDateTime(localImportStatus.lastImportedAt ?? undefined)}
-          />
-          <StatusRow
-            label="読み込んだファイル"
-            value={`${localImportStatus.latestImport?.readFileCount ?? 0}件`}
-          />
-          <StatusRow
-            label="新規追加件数"
-            value={`${localImportStatus.latestImport?.newRecordCount ?? 0}件`}
-          />
-          <StatusRow
-            label="重複スキップ件数"
-            value={`${localImportStatus.latestImport?.duplicateSkippedCount ?? 0}件`}
-          />
-          <StatusRow
-            label="変換失敗件数"
-            value={`${localImportStatus.latestImport?.rejectedRows ?? 0}件`}
-          />
-          <StatusRow
-            label="警告件数"
-            value={`${localImportStatus.latestImport?.warningCount ?? 0}件`}
-          />
-        </div>
-        {localImportStatus.lastError && (
-          <p className="import-error">{localImportStatus.lastError}</p>
-        )}
-        <button className="secondary-button" onClick={() => void onRescan()} type="button">
-          手動再スキャン
-        </button>
-        <p className="muted">
-          自動取り込みサーバーはローカルPC内だけでHealth Auto Export JSONを監査・正規化します。JSON原文は保存しません。
-        </p>
-      </Panel>
       <Panel title="ファイル読み込み">
         <label className="file-drop">
           <span>normalized JSON / AppleヘルスXML</span>
@@ -1602,15 +1584,6 @@ function loadStoredConfig(): AnalysisConfig {
   } catch {
     return defaultAnalysisConfig
   }
-}
-
-function EmptyState({ title }: { title: string }) {
-  return (
-    <section className="empty-state">
-      <h2>{title}</h2>
-      <p>ファイル読み込み画面から匿名サンプルまたはJSONを読み込んでください。</p>
-    </section>
-  )
 }
 
 function getDayMetrics(summary: SleepDaySummary): DayMetrics {

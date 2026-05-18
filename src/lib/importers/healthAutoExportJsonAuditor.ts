@@ -15,13 +15,13 @@ type ParsedAuditInput = {
 }
 
 const stagePatterns: Record<string, RegExp> = {
-  Awake: /\bawake\b|HKCategoryValueSleepAnalysisAwake/i,
-  Asleep: /\basleep\b|HKCategoryValueSleepAnalysisAsleep/i,
-  'In Bed': /\bin\s*bed\b|inbed|HKCategoryValueSleepAnalysisInBed/i,
-  Core: /\bcore\b|HKCategoryValueSleepAnalysisAsleepCore/i,
+  Awake: /\bawake\b|HKCategoryValueSleepAnalysisAwake|起きている|覚醒/i,
+  Asleep: /\basleep\b|HKCategoryValueSleepAnalysisAsleep|睡眠中|眠っている|睡眠/i,
+  'In Bed': /\bin\s*bed\b|inbed|HKCategoryValueSleepAnalysisInBed|ベッド/i,
+  Core: /\bcore\b|HKCategoryValueSleepAnalysisAsleepCore|コア/i,
   REM: /\brem\b|HKCategoryValueSleepAnalysisAsleepREM/i,
-  Deep: /\bdeep\b|HKCategoryValueSleepAnalysisAsleepDeep/i,
-  Unspecified: /\bunspecified\b|HKCategoryValueSleepAnalysisAsleepUnspecified/i,
+  Deep: /\bdeep\b|HKCategoryValueSleepAnalysisAsleepDeep|深い/i,
+  Unspecified: /\bunspecified\b|HKCategoryValueSleepAnalysisAsleepUnspecified|未指定/i,
 }
 
 export function parseHealthAutoExportJson(text: string): ParsedAuditInput {
@@ -45,9 +45,7 @@ export function auditHealthAutoExportJson(input: unknown): HealthAutoExportAudit
     })
   }
 
-  const metrics = isRecord(input) && Array.isArray(input.metrics)
-    ? input.metrics.filter(isRecord)
-    : null
+  const metrics = getMetrics(input)
 
   if (!metrics) {
     const directMetric = getSleepMetric(input)
@@ -204,8 +202,26 @@ export function getSleepAnalysisRows(input: unknown): RawHealthAutoExportRow[] {
 }
 
 function getSleepMetric(root: unknown): RawHealthAutoExportMetric | null {
+  const metricFromMetrics = getMetrics(root)?.find((item) => item.name === 'sleep_analysis')
+
+  if (metricFromMetrics) {
+    return metricFromMetrics
+  }
+
+  if (!isRecord(root)) {
+    return null
+  }
+
+  if (isRecord(root.sleep_analysis)) {
+    return root.sleep_analysis as RawHealthAutoExportMetric
+  }
+
+  return null
+}
+
+function getMetrics(root: unknown): RawHealthAutoExportMetric[] | null {
   if (Array.isArray(root)) {
-    return (root.find((item) => isRecord(item) && item.name === 'sleep_analysis') as RawHealthAutoExportMetric | undefined) ?? null
+    return root.filter(isRecord) as RawHealthAutoExportMetric[]
   }
 
   if (!isRecord(root)) {
@@ -213,13 +229,11 @@ function getSleepMetric(root: unknown): RawHealthAutoExportMetric | null {
   }
 
   if (Array.isArray(root.metrics)) {
-    return (root.metrics
-      .filter(isRecord)
-      .find((item) => item.name === 'sleep_analysis') as RawHealthAutoExportMetric | undefined) ?? null
+    return root.metrics.filter(isRecord) as RawHealthAutoExportMetric[]
   }
 
-  if (isRecord(root.sleep_analysis)) {
-    return root.sleep_analysis as RawHealthAutoExportMetric
+  if (isRecord(root.data) && Array.isArray(root.data.metrics)) {
+    return root.data.metrics.filter(isRecord) as RawHealthAutoExportMetric[]
   }
 
   return null
@@ -253,19 +267,32 @@ export function normalizeStage(value: string | undefined): NormalizedSleepStage 
   const normalized = value.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
   const compact = normalized.replace(/\s+/g, '')
 
-  if (normalized === 'awake' || compact === 'hkcategoryvaluesleepanalysisawake') {
+  if (
+    normalized === 'awake' ||
+    normalized === '起きている' ||
+    normalized === '覚醒' ||
+    compact === 'hkcategoryvaluesleepanalysisawake'
+  ) {
     return 'awake'
   }
 
   if (
     normalized === 'in bed' ||
+    normalized === 'ベッド' ||
+    normalized === 'ベッド内' ||
+    normalized === 'ベッドにいる' ||
+    normalized === '就寝中' ||
     compact === 'inbed' ||
     compact === 'hkcategoryvaluesleepanalysisinbed'
   ) {
     return 'in_bed'
   }
 
-  if (normalized === 'core' || compact === 'hkcategoryvaluesleepanalysisasleepcore') {
+  if (
+    normalized === 'core' ||
+    normalized === 'コア' ||
+    compact === 'hkcategoryvaluesleepanalysisasleepcore'
+  ) {
     return 'asleep_core'
   }
 
@@ -273,18 +300,29 @@ export function normalizeStage(value: string | undefined): NormalizedSleepStage 
     return 'asleep_rem'
   }
 
-  if (normalized === 'deep' || compact === 'hkcategoryvaluesleepanalysisasleepdeep') {
+  if (
+    normalized === 'deep' ||
+    normalized === '深い' ||
+    compact === 'hkcategoryvaluesleepanalysisasleepdeep'
+  ) {
     return 'asleep_deep'
   }
 
   if (
     normalized === 'unspecified' ||
+    normalized === '未指定' ||
     compact === 'hkcategoryvaluesleepanalysisasleepunspecified'
   ) {
     return 'asleep_unspecified'
   }
 
-  if (normalized === 'asleep' || compact === 'hkcategoryvaluesleepanalysisasleep') {
+  if (
+    normalized === 'asleep' ||
+    normalized === '睡眠' ||
+    normalized === '睡眠中' ||
+    normalized === '眠っている' ||
+    compact === 'hkcategoryvaluesleepanalysisasleep'
+  ) {
     return 'asleep'
   }
 

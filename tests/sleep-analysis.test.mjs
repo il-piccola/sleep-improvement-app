@@ -21,6 +21,10 @@ const { summarizeSleepDay } = await server.ssrLoadModule('/src/lib/analysis/summ
 const { checkDataQuality } = await server.ssrLoadModule('/src/lib/analysis/checkDataQuality.ts')
 const { evaluateSourceQuality } = await server.ssrLoadModule('/src/lib/analysis/evaluateSourceQuality.ts')
 const { buildUnifiedSleepTimeline } = await server.ssrLoadModule('/src/lib/analysis/buildUnifiedSleepTimeline.ts')
+const {
+  getCurrentSleepDayKey,
+  selectTodaySleepSummary,
+} = await server.ssrLoadModule('/src/lib/analysis/selectTodaySleepSummary.ts')
 const { normalizeSleepFile } = await server.ssrLoadModule('/src/lib/import/normalizeSleepFile.ts')
 const {
   loadStoredSourcePreferences,
@@ -39,6 +43,10 @@ const {
   getRecordDuplicateKeys,
   mergeAndAnalyzeSleepRecords,
 } = await server.ssrLoadModule('/server/healthStore.ts')
+const {
+  auditHealthAutoExportJson,
+  getSleepAnalysisRows,
+} = await server.ssrLoadModule('/src/lib/importers/healthAutoExportJsonAuditor.ts')
 
 try {
   await runAllCases()
@@ -83,6 +91,8 @@ async function runAllCases() {
   testUnifiedTotalDoesNotBecomeExcessive()
   testUnifiedSplitSleepDoesNotDisappear()
   testUnifiedIsolatedAwakeIsNotCounted()
+  testTodaySleepSummaryUsesCurrentSleepDayOnly()
+  testTodaySleepSummaryReturnsNullWhenOnlyOldDataExists()
   testSourcePreferenceExclusionRecalculatesAnalysis()
   testSourcePreferencePrimaryChangesUnifiedWinner()
   testSourcePreferenceFallbackDoesNotOverwriteActualSleep()
@@ -102,6 +112,7 @@ async function runAllCases() {
   testNormalizeSleepFileAddsSourceKeys()
   await testUnknownSourceKeysUseFileContext()
   await testImportKeepsPartialOverlaps()
+  testHealthAutoExportNestedDataMetrics()
   await testHealthAutoExportImportFlow()
   await testLegacyIndexedDbRecordsUseDerivedSourceKey()
 }
@@ -310,6 +321,37 @@ function testUnifiedIsolatedAwakeIsNotCounted() {
   assert.equal(timeline.comparison.unifiedTotalSleepMinutes, 240)
   assert.equal(timeline.blocks.length, 1)
   assert.ok(timeline.records.some((record) => record.id === 'awake' && record.unifiedStatus === 'support'))
+}
+
+function testTodaySleepSummaryUsesCurrentSleepDayOnly() {
+  const summaries = summarizeUnified([
+    sourceRecord('today-main', 'apple_watch', 'Apple Watch', '2026-05-17T23:00:00+09:00', '2026-05-18T06:00:00+09:00', 'asleep_core'),
+    sourceRecord('old-main', 'apple_watch', 'Apple Watch', '2026-01-02T23:00:00+09:00', '2026-01-03T05:00:00+09:00', 'asleep_core'),
+  ])
+  const selected = selectTodaySleepSummary(
+    summaries,
+    {},
+    new Date('2026-05-18T09:00:00+09:00'),
+  )
+
+  assert.equal(getCurrentSleepDayKey(new Date('2026-05-18T09:00:00+09:00')), '2026-05-17')
+  assert.equal(selected.targetSleepDayKey, '2026-05-17')
+  assert.equal(selected.todaySummary?.sleepDayKey, '2026-05-17')
+}
+
+function testTodaySleepSummaryReturnsNullWhenOnlyOldDataExists() {
+  const summaries = summarizeUnified([
+    sourceRecord('old-main', 'apple_watch', 'Apple Watch', '2026-01-02T23:00:00+09:00', '2026-01-03T05:00:00+09:00', 'asleep_core'),
+  ])
+  const selected = selectTodaySleepSummary(
+    summaries,
+    {},
+    new Date('2026-05-18T09:00:00+09:00'),
+  )
+
+  assert.equal(selected.targetSleepDayKey, '2026-05-17')
+  assert.equal(selected.todaySummary, null)
+  assert.equal(selected.latestSummary?.sleepDayKey, '2026-01-02')
 }
 
 function testSourcePreferenceExclusionRecalculatesAnalysis() {
@@ -1116,6 +1158,58 @@ async function testImportKeepsPartialOverlaps() {
   } finally {
     globalThis.indexedDB = previousIndexedDB
   }
+}
+
+function testHealthAutoExportNestedDataMetrics() {
+  const payload = {
+    data: {
+      metrics: [
+        {
+          name: 'sleep_analysis',
+          data: [
+            {
+              startDate: '2026-05-18T00:00:00+09:00',
+              endDate: '2026-05-18T03:00:00+09:00',
+              value: 'コア',
+              sourceName: 'Apple Watch',
+            },
+            {
+              startDate: '2026-05-18T03:00:00+09:00',
+              endDate: '2026-05-18T04:00:00+09:00',
+              value: 'REM',
+              sourceName: 'Apple Watch',
+            },
+            {
+              startDate: '2026-05-18T04:00:00+09:00',
+              endDate: '2026-05-18T05:00:00+09:00',
+              value: '深い',
+              sourceName: 'Apple Watch',
+            },
+            {
+              startDate: '2026-05-18T05:00:00+09:00',
+              endDate: '2026-05-18T05:05:00+09:00',
+              value: '起きている',
+              sourceName: 'Apple Watch',
+            },
+          ],
+        },
+      ],
+    },
+  }
+
+  const audit = auditHealthAutoExportJson(payload)
+  const rows = getSleepAnalysisRows(payload)
+
+  assert.equal(audit.metricsFound, true)
+  assert.equal(audit.sleepAnalysisFound, true)
+  assert.equal(audit.sleepAnalysisDataFound, true)
+  assert.equal(audit.isNonAggregated, true)
+  assert.equal(audit.convertibleRows, 4)
+  assert.equal(audit.stageCounts.asleep_core, 1)
+  assert.equal(audit.stageCounts.asleep_rem, 1)
+  assert.equal(audit.stageCounts.asleep_deep, 1)
+  assert.equal(audit.stageCounts.awake, 1)
+  assert.equal(rows.length, 4)
 }
 
 async function testHealthAutoExportImportFlow() {

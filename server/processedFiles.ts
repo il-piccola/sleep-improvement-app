@@ -3,6 +3,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 export type ProcessedFileEntry = {
+  importerVersion?: number
   path: string
   fileName: string
   mtimeMs: number
@@ -25,6 +26,8 @@ export type ProcessedFilesState = {
 const emptyState: ProcessedFilesState = {
   files: [],
 }
+
+export const currentImporterVersion = 2
 
 export async function getFileFingerprint(path: string): Promise<ProcessedFileFingerprint> {
   const metadata = await stat(path)
@@ -57,8 +60,12 @@ export async function saveProcessedFile(
   entry: ProcessedFileEntry,
 ): Promise<ProcessedFilesState> {
   const state = await loadProcessedFiles(dataDir)
+  const versionedEntry = {
+    ...entry,
+    importerVersion: currentImporterVersion,
+  }
   const files = [
-    entry,
+    versionedEntry,
     ...state.files.filter((file) => file.path !== entry.path || file.sha256 !== entry.sha256),
   ].slice(0, 500)
   const nextState = { files }
@@ -82,6 +89,7 @@ export async function hasProcessedFile(
       file.mtimeMs === fingerprint.mtimeMs &&
       file.size === fingerprint.size &&
       file.sha256 === fingerprint.sha256 &&
+      (file.importerVersion ?? 1) === currentImporterVersion &&
       file.status === 'imported',
   )
 }
