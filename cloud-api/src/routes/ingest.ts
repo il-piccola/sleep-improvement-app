@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
+  createIngestBatchDocument,
+  FirestoreSaveError,
+  saveIngestBatch,
+} from '../lib/batches.js'
+import {
   hasJsonContentType,
   isAuthorized,
   readJsonBody,
@@ -30,8 +35,28 @@ export async function handleHealthAutoExportIngest(
     return
   }
 
+  const batchId = randomUUID()
+  const receivedAt = new Date().toISOString()
+  const batch = createIngestBatchDocument({
+    batchId,
+    receivedAt,
+    requestSizeBytes: body.byteLength,
+  })
+
+  try {
+    await saveIngestBatch(batch)
+  } catch (error) {
+    if (error instanceof FirestoreSaveError) {
+      sendSafeError(response, 503, error.message)
+      return
+    }
+
+    throw error
+  }
+
   sendJson(response, 202, {
-    batchId: randomUUID(),
-    receivedAt: new Date().toISOString(),
+    batchId,
+    receivedAt,
+    firestoreSaved: true,
   })
 }
