@@ -95,8 +95,8 @@ const server = createServer(async (request, response) => {
   }
 })
 
-server.listen(config.serverPort, () => {
-  console.log(`Health import server listening on http://localhost:${config.serverPort}`)
+server.listen(config.serverPort, '0.0.0.0', () => {
+  console.log(`Health import server listening on http://0.0.0.0:${config.serverPort}`)
   console.log(`Watching ${config.watchDir}`)
 })
 

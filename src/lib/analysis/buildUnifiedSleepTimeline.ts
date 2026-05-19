@@ -289,7 +289,7 @@ function applyFallbackSourceRules(
         id: `fallback-source-support-${block.id}`,
         severity: 'info',
         action: 'support_only',
-        message: `${describeBlock(block)} はfallback設定のソースです。同じ時間帯にprimary/secondary候補の実睡眠データがあるため、主要指標では補助扱いにしました。`,
+        message: `${describeBlock(block)} は補助データです。同じ時間帯に主データまたは補助候補の実睡眠データがあるため、主要指標では補助扱いにしました。`,
         affectedBlockIds: [block.id],
         sourceKeys: block.sourceKeys,
       })
@@ -300,7 +300,7 @@ function applyFallbackSourceRules(
       id: `fallback-source-used-${block.id}`,
       severity: 'info',
       action: 'fallback_used',
-      message: `${describeBlock(block)} はfallback設定のソースですが、同じ時間帯に他の実睡眠データがないため補助的に採用しました。`,
+      message: `${describeBlock(block)} は補助データですが、同じ時間帯に他の実睡眠データがないため補助的に採用しました。`,
       adoptedBlockId: block.id,
       affectedBlockIds: [block.id],
       sourceKeys: block.sourceKeys,
@@ -593,7 +593,7 @@ function checkUnifiedTimelineAnomalies(
   const maxSourceTotal = calculateMaxSourceTotal(rawBlocks)
 
   if (rawTotal > 0 && unifiedTotal > rawTotal * 1.1 + 30) {
-    warnings.push('統合後の総睡眠時間が統合前より大きく増えています。In Bed fallbackや独立睡眠を確認してください。')
+    warnings.push('統合後の総睡眠時間が統合前より大きく増えています。In Bedの補助データや独立睡眠を確認してください。')
   }
 
   if (maxSourceTotal > 0 && unifiedTotal > maxSourceTotal + 240) {

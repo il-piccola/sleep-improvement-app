@@ -97,7 +97,7 @@ function evaluateOneSource(
   if (hasMultipleSleeps) strengths.push('1日に複数回の睡眠を検出できます。')
 
   if (startEndRatio < 1) warnings.push('開始・終了時刻が不足しているレコードがあります。')
-  if (!hasActualSleep && hasInBed) warnings.push('In Bed中心のため、実睡眠時間の分析では補助用です。')
+  if (!hasActualSleep && hasInBed) warnings.push('In Bed中心のため、実睡眠時間の分析では補助データです。')
   if (!hasActualSleep && !hasInBed) warnings.push('実睡眠として扱えるstageが見つかりません。')
   if (reasonableDurationRatio < 1) warnings.push('極端に短い、または長いdurationを含みます。')
   if (!hasRecentData) warnings.push('直近データが少ないため、最新傾向の目安としては弱めです。')
@@ -108,7 +108,7 @@ function evaluateOneSource(
     warnings.push('手入力らしいデータのため、補助データ候補として扱います。')
   }
   if (overlapRate > 0) {
-    warnings.push(`他ソースと重なりが多い可能性があります（重複率${Math.round(overlapRate * 100)}%）。`)
+    warnings.push(`他のデータと重なりがあります（重なり率${Math.round(overlapRate * 100)}%）。`)
   }
 
   return {

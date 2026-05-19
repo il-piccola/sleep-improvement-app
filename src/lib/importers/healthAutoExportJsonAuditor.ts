@@ -352,7 +352,7 @@ function buildResult(
         ? 'このJSONは睡眠分析に使えます'
         : status === 'needs_settings'
           ? '設定変更が必要です'
-          : 'データ不足です',
+          : '表示できる範囲が限られます',
     messages: partial.messages,
     metricsFound: partial.metricsFound ?? false,
     sleepAnalysisFound: partial.sleepAnalysisFound ?? false,

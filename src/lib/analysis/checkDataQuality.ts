@@ -95,7 +95,7 @@ export function checkDataQuality(records: SleepRecord[], now = new Date()): Data
 
   return {
     level: hasError ? 'insufficient' : hasWarning ? 'caution' : 'good',
-    label: hasError ? '不足' : hasWarning ? '注意' : '良好',
+    label: hasError ? '表示できる範囲が限られます' : hasWarning ? '注意' : '良好',
     recordCount: records.length,
     dateRangeLabel: formatDateRange(datedRecords),
     latestRecordDateLabel: latestDate ? formatDate(latestDate) : '不明',

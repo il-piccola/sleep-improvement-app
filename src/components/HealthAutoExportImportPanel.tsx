@@ -88,7 +88,7 @@ export function HealthAutoExportImportPanel({ onImported }: HealthAutoExportImpo
               <Status label="新規追加件数" value={`${result.importStats.newRecordCount}件`} />
               <Status label="重複としてスキップ" value={`${result.importStats.duplicateSkippedCount}件`} />
               <Status label="保存済み合計" value={`${result.importStats.totalSavedRecordCount}件`} />
-              <Status label="変換できなかった件数" value={`${result.audit.rejectedRows}件`} />
+              <Status label="読み取れなかったデータ" value={`${result.audit.rejectedRows}件`} />
               <Status label="データ期間" value={result.audit.dateRangeLabel} />
               <Status
                 label="分割睡眠の検出"
