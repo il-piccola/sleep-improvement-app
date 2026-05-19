@@ -3,11 +3,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore'
 
 let cachedFirestore: Firestore | null = null
 
-export function getFirestoreDb(): Firestore {
-  if (cachedFirestore) {
-    return cachedFirestore
-  }
-
+export function ensureFirebaseAdminApp(): void {
   if (getApps().length === 0) {
     const projectId = process.env.GOOGLE_CLOUD_PROJECT?.trim()
 
@@ -16,6 +12,14 @@ export function getFirestoreDb(): Firestore {
       ...(projectId ? { projectId } : {}),
     })
   }
+}
+
+export function getFirestoreDb(): Firestore {
+  if (cachedFirestore) {
+    return cachedFirestore
+  }
+
+  ensureFirebaseAdminApp()
 
   const databaseId = process.env.FIRESTORE_DATABASE_ID?.trim() || '(default)'
   cachedFirestore = getFirestore(databaseId)

@@ -2,6 +2,12 @@ import { createServer } from 'node:http'
 import { loadLocalEnv } from './lib/env.js'
 import { handleHealth } from './routes/health.js'
 import { handleHealthAutoExportIngest } from './routes/ingest.js'
+import {
+  handleImportStatus,
+  handleInsights,
+  handleSummaries,
+  handleUnifiedTimeline,
+} from './routes/view.js'
 
 loadLocalEnv()
 
@@ -21,6 +27,26 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/ingest/health-auto-export') {
       await handleHealthAutoExportIngest(request, response, token)
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/import-status') {
+      await handleImportStatus(request, response)
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/summaries') {
+      await handleSummaries(request, url, response)
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/unified-timeline') {
+      await handleUnifiedTimeline(request, url, response)
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/insights') {
+      await handleInsights(request, url, response)
       return
     }
 

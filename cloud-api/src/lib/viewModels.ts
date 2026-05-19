@@ -1,0 +1,319 @@
+import { getDefaultUserId } from './batches.js'
+import { getFirestoreDb, isFirestoreAuthError } from './firestore.js'
+import type { IngestBatchDocument, SleepRecordDocument } from '../types/firestore.js'
+
+type SleepBlockView = {
+  start: string
+  end: string
+  durationMinutes: number
+  type: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
+}
+
+type SummaryView = {
+  date: string
+  totalSleepMinutes: number
+  sleepCount: number
+  mainSleepStart: string | null
+  mainSleepEnd: string | null
+  fragmentationScore: number
+  circadianScore: number
+}
+
+type DayModel = {
+  date: string
+  blocks: SleepBlockView[]
+}
+
+export class ViewApiError extends Error {
+  constructor(cause: unknown) {
+    super(getViewApiErrorMessage(cause))
+    this.name = 'ViewApiError'
+    this.cause = cause
+  }
+}
+
+const MAX_DAYS = 90
+const DEFAULT_DAYS = 30
+const MERGE_GAP_MINUTES = 30
+const NAP_MAX_MINUTES = 90
+const EVENING_START_HOUR = 16
+
+export function parseDays(value: string | null): number {
+  const days = Number(value)
+
+  if (!Number.isInteger(days) || days <= 0) {
+    return DEFAULT_DAYS
+  }
+
+  return Math.min(days, MAX_DAYS)
+}
+
+export async function getImportStatus(userId = getDefaultUserId()): Promise<{
+  lastIngestedAt: string | null
+  lastBatchId: string | null
+  addedCount: number
+  skippedDuplicateCount: number
+  warningCount: number
+  sleepRecordCount: number
+}> {
+  try {
+    const db = getFirestoreDb()
+    const batches = await db
+      .collection('users')
+      .doc(userId)
+      .collection('ingest_batches')
+      .orderBy('receivedAt', 'desc')
+      .limit(1)
+      .get()
+    const latest = batches.docs[0]?.data() as Partial<IngestBatchDocument> | undefined
+    const countSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('sleep_records')
+      .count()
+      .get()
+
+    return {
+      lastIngestedAt: latest?.receivedAt ?? null,
+      lastBatchId: latest?.batchId ?? null,
+      addedCount: latest?.addedCount ?? 0,
+      skippedDuplicateCount: latest?.skippedDuplicateCount ?? 0,
+      warningCount: latest?.warningCount ?? 0,
+      sleepRecordCount: countSnapshot.data().count,
+    }
+  } catch (error) {
+    throw new ViewApiError(error)
+  }
+}
+
+export async function getSummaries(days: number, userId = getDefaultUserId()): Promise<{
+  days: SummaryView[]
+}> {
+  const models = await getDayModels(days, userId)
+
+  return {
+    days: models.map((model) => {
+      const main = model.blocks.find((block) => block.type === 'main') ?? null
+      return {
+        date: model.date,
+        totalSleepMinutes: sumMinutes(model.blocks),
+        sleepCount: model.blocks.length,
+        mainSleepStart: main?.start ?? null,
+        mainSleepEnd: main?.end ?? null,
+        fragmentationScore: calculateFragmentationScore(model.blocks),
+        circadianScore: calculateCircadianScore(model.blocks),
+      }
+    }),
+  }
+}
+
+export async function getUnifiedTimeline(days: number, userId = getDefaultUserId()): Promise<{
+  days: DayModel[]
+}> {
+  return {
+    days: await getDayModels(days, userId),
+  }
+}
+
+export async function getInsights(days: number, userId = getDefaultUserId()): Promise<{
+  items: Array<{ id: string; title: string; description: string; priority: 'low' | 'medium' | 'high' }>
+}> {
+  const models = await getDayModels(days, userId)
+  const latest = models[0]
+
+  if (!latest) {
+    return { items: [] }
+  }
+
+  const items: Array<{
+    id: string
+    title: string
+    description: string
+    priority: 'low' | 'medium' | 'high'
+  }> = [
+    {
+      id: 'morning-light',
+      title: '起きたら30分以内に外の光を入れる',
+      description: '朝の明るさを先に入れて、今日の起床リズムの合図にします。',
+      priority: 'medium',
+    },
+  ]
+
+  if (latest.blocks.length >= 2) {
+    items.push({
+      id: 'nap-window',
+      title: '仮眠は早めの時間に短く区切る',
+      description: '複数回眠っている日は、日中の睡眠を夕方前までに短めに区切るのが目安です。',
+      priority: 'medium',
+    })
+  }
+
+  if (latest.blocks.some((block) => block.type === 'evening')) {
+    items.push({
+      id: 'evening-rest',
+      title: '16時以降の眠気は、まず横にならずに休む',
+      description: '座って目を閉じる、軽く歩く、照明を調整するなどから選びます。',
+      priority: 'high',
+    })
+  }
+
+  return { items }
+}
+
+async function getDayModels(days: number, userId: string): Promise<DayModel[]> {
+  try {
+    const records = await getRecentSleepRecords(days, userId)
+    return buildDayModels(records).slice(0, days)
+  } catch (error) {
+    throw new ViewApiError(error)
+  }
+}
+
+async function getRecentSleepRecords(days: number, userId: string): Promise<SleepRecordDocument[]> {
+  const from = new Date()
+  from.setDate(from.getDate() - days - 2)
+  from.setHours(0, 0, 0, 0)
+
+  const snapshot = await getFirestoreDb()
+    .collection('users')
+    .doc(userId)
+    .collection('sleep_records')
+    .where('start', '>=', from.toISOString())
+    .orderBy('start', 'desc')
+    .limit(days * 120)
+    .get()
+
+  return snapshot.docs.map((doc) => doc.data() as SleepRecordDocument)
+}
+
+function buildDayModels(records: SleepRecordDocument[]): DayModel[] {
+  const asleepRecords = records
+    .filter((record) => isSleepStage(record.stage))
+    .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime())
+  const blocks = mergeSleepRecords(asleepRecords)
+  const grouped = new Map<string, SleepBlockView[]>()
+
+  for (const block of blocks) {
+    const key = getSleepDayKey(block.start)
+    const list = grouped.get(key) ?? []
+    list.push(block)
+    grouped.set(key, list)
+  }
+
+  return Array.from(grouped.entries())
+    .map(([date, dayBlocks]) => ({
+      date,
+      blocks: classifyBlocks(dayBlocks).sort(
+        (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
+      ),
+    }))
+    .sort((left, right) => right.date.localeCompare(left.date))
+}
+
+function mergeSleepRecords(records: SleepRecordDocument[]): SleepBlockView[] {
+  const blocks: SleepBlockView[] = []
+
+  for (const record of records) {
+    const previous = blocks.at(-1)
+    const start = new Date(record.start).getTime()
+    const end = new Date(record.end).getTime()
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      continue
+    }
+
+    if (previous) {
+      const previousEnd = new Date(previous.end).getTime()
+      const gapMinutes = (start - previousEnd) / 60_000
+
+      if (gapMinutes >= 0 && gapMinutes <= MERGE_GAP_MINUTES) {
+        previous.end = record.end > previous.end ? record.end : previous.end
+        previous.durationMinutes = Math.round(
+          (new Date(previous.end).getTime() - new Date(previous.start).getTime()) / 60_000,
+        )
+        continue
+      }
+    }
+
+    blocks.push({
+      start: record.start,
+      end: record.end,
+      durationMinutes: record.durationMinutes,
+      type: 'unknown',
+    })
+  }
+
+  return blocks
+}
+
+function classifyBlocks(blocks: SleepBlockView[]): SleepBlockView[] {
+  const longest = [...blocks].sort((left, right) => right.durationMinutes - left.durationMinutes)[0]
+
+  return blocks.map((block) => {
+    const start = new Date(block.start)
+    let type: SleepBlockView['type'] = 'supplemental'
+
+    if (longest && block.start === longest.start && block.end === longest.end) {
+      type = 'main'
+    } else if (start.getHours() >= EVENING_START_HOUR) {
+      type = 'evening'
+    } else if (block.durationMinutes < NAP_MAX_MINUTES) {
+      type = 'nap'
+    }
+
+    return { ...block, type }
+  })
+}
+
+function getSleepDayKey(value: string): string {
+  const date = new Date(value)
+
+  if (date.getHours() < 18) {
+    date.setDate(date.getDate() - 1)
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate(),
+  ).padStart(2, '0')}`
+}
+
+function isSleepStage(stage: SleepRecordDocument['stage']): boolean {
+  return stage === 'asleep' || stage.startsWith('asleep_')
+}
+
+function sumMinutes(blocks: SleepBlockView[]): number {
+  return blocks.reduce((sum, block) => sum + block.durationMinutes, 0)
+}
+
+function calculateFragmentationScore(blocks: SleepBlockView[]): number {
+  if (blocks.length <= 1) {
+    return 0
+  }
+
+  return Math.min(100, Math.round((blocks.length - 1) * 25 + blocks.filter((block) => block.type === 'nap').length * 10))
+}
+
+function calculateCircadianScore(blocks: SleepBlockView[]): number {
+  const total = sumMinutes(blocks)
+
+  if (total <= 0) {
+    return 0
+  }
+
+  const daytimeMinutes = blocks
+    .filter((block) => {
+      const hour = new Date(block.start).getHours()
+      return hour >= 9 && hour < 18
+    })
+    .reduce((sum, block) => sum + block.durationMinutes, 0)
+
+  return Math.min(100, Math.round((daytimeMinutes / total) * 100))
+}
+
+function getViewApiErrorMessage(error: unknown): string {
+  if (isFirestoreAuthError(error)) {
+    return 'Firestore認証に失敗しました。ローカル開発では gcloud auth application-default login を実行してください。Cloud Run本番ではサービスアカウントのFirestore権限を確認してください。'
+  }
+
+  return 'Firestoreから閲覧用データを取得できませんでした。プロジェクトID、Database ID、権限を確認してください。'
+}
