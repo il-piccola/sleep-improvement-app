@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import './App.css'
 import sampleSleepData from './sample/anonymized-sleep-records.json'
 import {
@@ -14,6 +15,7 @@ import { evaluateSourceQuality } from './lib/analysis/evaluateSourceQuality'
 import { buildUnifiedSleepTimeline } from './lib/analysis/buildUnifiedSleepTimeline'
 import { selectTodaySleepSummary } from './lib/analysis/selectTodaySleepSummary'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
+import { getFirebaseAuth } from './lib/firebaseClient'
 import { resolveSleepSource } from './lib/source/resolveSleepSource'
 import {
   loadStoredSourcePreferences,
@@ -93,6 +95,12 @@ type DayMetrics = {
   sleepMidpoint: string
 }
 
+type FirebaseUserInfo = {
+  displayName: string | null
+  email: string | null
+  uid: string
+}
+
 type SleepSourceDetail = {
   sourceKey: string
   displayName: string
@@ -158,6 +166,7 @@ const SETTINGS_STORAGE_KEY = 'sleep-improvement.analysis-config'
 const LOCAL_IMPORT_SERVER_URL =
   import.meta.env.VITE_HEALTH_IMPORT_SERVER_URL ??
   `${window.location.protocol}//${window.location.hostname}:8787`
+const FIREBASE_AUTH = getFirebaseAuth()
 
 function App() {
   const [activeScreen, setActiveScreen] = useState<AppScreen>('dashboard')
@@ -174,6 +183,8 @@ function App() {
   const [localImportStatus, setLocalImportStatus] = useState<LocalImportStatus>({
     connected: false,
   })
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUserInfo | null>(null)
+  const firebaseAuthAvailable = Boolean(FIREBASE_AUTH)
 
   const analysis = useMemo(() => {
     const rawBlocks = buildSleepBlocks(sleepData.records, config)
@@ -227,6 +238,24 @@ function App() {
   useEffect(() => {
     saveStoredSourcePreferences(sourcePreferences)
   }, [sourcePreferences])
+
+  useEffect(() => {
+    if (!FIREBASE_AUTH) {
+      return
+    }
+
+    return onAuthStateChanged(FIREBASE_AUTH, (user) => {
+      setFirebaseUser(
+        user
+          ? {
+              displayName: user.displayName,
+              email: user.email,
+              uid: user.uid,
+            }
+          : null,
+      )
+    })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -391,6 +420,8 @@ function App() {
       {activeScreen === 'settings' && (
         <Settings
           config={config}
+          firebaseAuthAvailable={firebaseAuthAvailable}
+          firebaseUser={firebaseUser}
           onChange={setConfig}
           onReset={() => {
             setConfig(defaultAnalysisConfig)
@@ -1259,10 +1290,14 @@ function TodayActions({ actions }: { actions: ImprovementAction[] }) {
 
 function Settings({
   config,
+  firebaseAuthAvailable,
+  firebaseUser,
   onChange,
   onReset,
 }: {
   config: AnalysisConfig
+  firebaseAuthAvailable: boolean
+  firebaseUser: FirebaseUserInfo | null
   onChange: (config: AnalysisConfig) => void
   onReset: () => void
 }) {
@@ -1284,6 +1319,11 @@ function Settings({
 
   return (
     <section className="settings-screen">
+      <FirebaseUserPanel
+        authAvailable={firebaseAuthAvailable}
+        user={firebaseUser}
+      />
+
       <Panel title="変更できる項目">
         <p className="settings-copy">
           ここで変更した値はこの端末のブラウザに保存されます。変更すると、今日の睡眠・タイムライン・改善アクションを同じ設定で再計算します。
@@ -1361,6 +1401,100 @@ function Settings({
         </ul>
       </Panel>
     </section>
+  )
+}
+
+function FirebaseUserPanel({
+  authAvailable,
+  user,
+}: {
+  authAvailable: boolean
+  user: FirebaseUserInfo | null
+}) {
+  const [copyStatus, setCopyStatus] = useState('')
+  const [authStatus, setAuthStatus] = useState('')
+
+  const signIn = async () => {
+    if (!FIREBASE_AUTH) {
+      setAuthStatus('Firebase設定が見つかりません。')
+      return
+    }
+
+    try {
+      setAuthStatus('')
+      await signInWithPopup(FIREBASE_AUTH, new GoogleAuthProvider())
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : 'ログインできませんでした。')
+    }
+  }
+
+  const logOut = async () => {
+    if (!FIREBASE_AUTH) {
+      return
+    }
+
+    try {
+      setAuthStatus('')
+      await signOut(FIREBASE_AUTH)
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : 'ログアウトできませんでした。')
+    }
+  }
+
+  const copyUid = async () => {
+    if (!user?.uid) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(user.uid)
+      setCopyStatus('コピーしました')
+    } catch {
+      setCopyStatus('コピーできませんでした')
+    }
+  }
+
+  return (
+    <Panel title="ログイン状態">
+      {!authAvailable && (
+        <p className="settings-copy">
+          Firebase設定が見つからないため、ログイン情報を表示できません。
+        </p>
+      )}
+      {authAvailable && !user && (
+        <div className="auth-user-card">
+          <p className="settings-copy">
+            Firebaseにログインしていません。ログイン後、ここにUIDが表示されます。
+          </p>
+          <button className="secondary-button auth-button" onClick={() => void signIn()} type="button">
+            Googleでログイン
+          </button>
+        </div>
+      )}
+      {user && (
+        <div className="auth-user-card">
+          <StatusRow label="表示名" value={user.displayName ?? '未設定'} />
+          <StatusRow label="メールアドレス" value={user.email ?? '未設定'} />
+          <div className="status-row uid-row">
+            <span>Firebase UID</span>
+            <div>
+              <strong>{user.uid}</strong>
+              <button className="secondary-button" onClick={() => void copyUid()} type="button">
+                コピー
+              </button>
+            </div>
+          </div>
+          <p className="settings-copy auth-note">
+            このUIDをCloud Runの ALLOWED_FIREBASE_UIDS に設定します。ID Token本文は表示しません。
+          </p>
+          {copyStatus && <p className="file-status">{copyStatus}</p>}
+          <button className="secondary-button auth-button" onClick={() => void logOut()} type="button">
+            ログアウト
+          </button>
+        </div>
+      )}
+      {authStatus && <p className="import-error">{authStatus}</p>}
+    </Panel>
   )
 }
 

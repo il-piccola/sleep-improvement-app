@@ -745,6 +745,43 @@
   text-align: right;
 }
 
+.auth-user-card {
+  display: grid;
+  gap: 10px;
+}
+
+.uid-row {
+  align-items: start;
+}
+
+.uid-row div {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.uid-row strong {
+  max-width: min(560px, 100%);
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.uid-row .secondary-button {
+  width: auto;
+  min-width: 96px;
+}
+
+.auth-button {
+  justify-self: start;
+  width: auto;
+  min-width: 160px;
+}
+
+.auth-note {
+  margin: 4px 0 0;
+}
+
 .quality-banner {
   display: flex;
   justify-content: space-between;
@@ -1651,6 +1688,24 @@
     display: grid;
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .uid-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .uid-row div {
+    justify-items: stretch;
+  }
+
+  .auth-button {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .uid-row strong {
+    text-align: left;
   }
 
   .setting-field {
