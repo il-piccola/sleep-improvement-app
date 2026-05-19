@@ -71,6 +71,45 @@ export async function saveIngestBatch(batch: IngestBatchDocument): Promise<void>
   }
 }
 
+export async function updateIngestBatchResult({
+  addedCount,
+  batchId,
+  skippedDuplicateCount,
+  status,
+  userId,
+  warningCount,
+}: {
+  addedCount: number
+  batchId: string
+  skippedDuplicateCount: number
+  status: 'completed' | 'completed_with_warnings'
+  userId: string
+  warningCount: number
+}): Promise<void> {
+  try {
+    await withTimeout(
+      getFirestoreDb()
+        .collection('users')
+        .doc(userId)
+        .collection('ingest_batches')
+        .doc(batchId)
+        .set(
+          {
+            addedCount,
+            skippedDuplicateCount,
+            status,
+            warningCount,
+            completedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        ),
+      FIRESTORE_WRITE_TIMEOUT_MS,
+    )
+  } catch (error) {
+    throw new FirestoreSaveError(error)
+  }
+}
+
 function getFirestoreSaveErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === 'FirestoreWriteTimeoutError') {
     return 'Firestoreへの保存がタイムアウトしました。ローカル開発では gcloud auth application-default login と GOOGLE_CLOUD_PROJECT を確認してください。Cloud Run本番ではサービスアカウントのFirestore権限を確認してください。'
