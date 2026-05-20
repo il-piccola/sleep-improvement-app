@@ -151,6 +151,27 @@ type TrendComparison = {
   totalSleepDiffMinutes: number
 }
 
+type CloudImportStatusPayload = {
+  lastIngestedAt: string | null
+  lastBatchId: string | null
+  addedCount: number
+  skippedDuplicateCount: number
+  warningCount: number
+  sleepRecordCount: number
+}
+
+type CloudTimelinePayload = {
+  days?: Array<{
+    date: string
+    blocks: Array<{
+      start: string
+      end: string
+      durationMinutes: number
+      type: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
+    }>
+  }>
+}
+
 const screens: Array<{ id: AppScreen; label: string; shortLabel: string }> = [
   { id: 'dashboard', label: '今日の睡眠', shortLabel: '今日' },
   { id: 'timeline', label: 'タイムライン', shortLabel: '時間' },
@@ -166,6 +187,7 @@ const SETTINGS_STORAGE_KEY = 'sleep-improvement.analysis-config'
 const LOCAL_IMPORT_SERVER_URL =
   import.meta.env.VITE_HEALTH_IMPORT_SERVER_URL ??
   `${window.location.protocol}//${window.location.hostname}:8787`
+const CLOUD_API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const FIREBASE_AUTH = getFirebaseAuth()
 
 function App() {
@@ -261,7 +283,9 @@ function App() {
     let cancelled = false
 
     const refresh = async () => {
-      const result = await fetchLocalServerData()
+      const result = CLOUD_API_BASE_URL
+        ? await fetchCloudServerData(firebaseUser)
+        : await fetchLocalServerData()
 
       if (cancelled) {
         return
@@ -277,7 +301,11 @@ function App() {
           records: result.records,
           warnings: result.warnings,
         })
-        setFileStatus('ローカル自動取り込みサーバーから最新データを取得しました')
+        setFileStatus(
+          CLOUD_API_BASE_URL
+            ? 'Cloud Run APIから最新データを取得しました'
+            : 'ローカル自動取り込みサーバーから最新データを取得しました',
+        )
       }
     }
 
@@ -290,7 +318,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [])
+  }, [firebaseUser])
 
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
@@ -519,6 +547,105 @@ async function fetchLocalServerData(): Promise<{
       },
     }
   }
+}
+
+async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
+  generatedAt?: string
+  records: SleepRecord[]
+  warnings: string[]
+  status: LocalImportStatus
+}> {
+  if (!FIREBASE_AUTH || !user) {
+    return {
+      records: [],
+      warnings: [],
+      status: {
+        connected: false,
+        lastError: 'Cloud Runの睡眠データを見るにはFirebaseログインが必要です。',
+      },
+    }
+  }
+
+  try {
+    const idToken = await FIREBASE_AUTH.currentUser?.getIdToken()
+
+    if (!idToken) {
+      throw new Error('Firebase ID Tokenを取得できませんでした。')
+    }
+
+    const headers = {
+      Authorization: `Bearer ${idToken}`,
+    }
+    const [statusResponse, timelineResponse] = await Promise.all([
+      fetch(`${CLOUD_API_BASE_URL}/api/import-status`, { headers }),
+      fetch(`${CLOUD_API_BASE_URL}/api/unified-timeline?days=30`, { headers }),
+    ])
+
+    if (!statusResponse.ok || !timelineResponse.ok) {
+      throw new Error('Cloud Run APIから睡眠データを取得できません。')
+    }
+
+    const statusPayload = (await statusResponse.json()) as CloudImportStatusPayload
+    const timelinePayload = (await timelineResponse.json()) as CloudTimelinePayload
+    const records = cloudTimelineToSleepRecords(timelinePayload)
+
+    return {
+      generatedAt: statusPayload.lastIngestedAt ?? undefined,
+      records,
+      warnings: [],
+      status: {
+        connected: true,
+        isWatching: false,
+        lastImportedAt: statusPayload.lastIngestedAt,
+        lastProcessedFileName: statusPayload.lastBatchId,
+        latestImport: {
+          importedFileName: statusPayload.lastBatchId ?? 'Cloud Run',
+          importedAt: statusPayload.lastIngestedAt ?? new Date().toISOString(),
+          readFileCount: 0,
+          normalizedCount: statusPayload.sleepRecordCount,
+          newRecordCount: statusPayload.addedCount,
+          duplicateSkippedCount: statusPayload.skippedDuplicateCount,
+          rejectedRows: 0,
+          warningCount: statusPayload.warningCount,
+        },
+      },
+    }
+  } catch (error) {
+    return {
+      records: [],
+      warnings: [],
+      status: {
+        connected: false,
+        lastError: error instanceof Error ? error.message : 'Cloud Run APIから取得できません。',
+      },
+    }
+  }
+}
+
+function cloudTimelineToSleepRecords(payload: CloudTimelinePayload): SleepRecord[] {
+  return (payload.days ?? []).flatMap((day) =>
+    day.blocks.map((block, index): SleepRecord => ({
+      id: `cloud-${day.date}-${index}-${block.start}`,
+      value: 'asleep',
+      sourceFormat: 'cloud_run_api',
+      sourceFile: 'cloud_run_unified_timeline',
+      sourceKey: 'cloud_run_unified_timeline',
+      sourceApp: 'Cloud Run',
+      sourceName: 'Cloud Run',
+      sourceKind: 'present',
+      sourceLabel: 'Cloud Run',
+      originalValue: block.type,
+      start: block.start,
+      end: block.end,
+      startDate: block.start,
+      endDate: block.end,
+      stage: 'asleep',
+      durationMinutes: block.durationMinutes,
+      hasStartDate: true,
+      hasEndDate: true,
+      hasSource: true,
+    })),
+  )
 }
 
 async function requestLocalRescan(): Promise<LocalImportStatus> {

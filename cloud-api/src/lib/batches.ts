@@ -20,17 +20,19 @@ export function createIngestBatchDocument({
   batchId,
   receivedAt,
   requestSizeBytes,
+  source = 'health_auto_export',
   userId = getDefaultUserId(),
 }: {
   batchId: string
   receivedAt: string
   requestSizeBytes: number
+  source?: IngestBatchDocument['source']
   userId?: string
 }): IngestBatchDocument {
   return {
     batchId,
     receivedAt,
-    source: 'health_auto_export',
+    source,
     requestSizeBytes,
     status: 'received',
     warningCount: 0,

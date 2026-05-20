@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { loadLocalEnv } from './lib/env.js'
 import { handleHealth } from './routes/health.js'
 import { handleHealthAutoExportIngest } from './routes/ingest.js'
+import { handleDriveSync } from './routes/driveSync.js'
 import {
   handleImportStatus,
   handleInsights,
@@ -16,6 +17,18 @@ const token = process.env.HEALTH_EXPORT_API_TOKEN
 
 const server = createServer(async (request, response) => {
   response.setHeader('X-Content-Type-Options', 'nosniff')
+  response.setHeader('Access-Control-Allow-Origin', '*')
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+  response.setHeader(
+    'Access-Control-Allow-Headers',
+    'Authorization, Content-Type, X-Source-File-Name, X-File-Name',
+  )
+
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204)
+    response.end()
+    return
+  }
 
   try {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
@@ -27,6 +40,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/ingest/health-auto-export') {
       await handleHealthAutoExportIngest(request, response, token)
+      return
+    }
+
+    if (url.pathname === '/api/drive-sync') {
+      await handleDriveSync(request, response, token)
       return
     }
 
