@@ -1,6 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { authorizeViewRequest, ViewAuthError } from '../lib/viewAuth.js'
-import { getImportStatus, getInsights, getSummaries, getUnifiedTimeline, parseDays } from '../lib/viewModels.js'
+import {
+  getDriveSyncStatus,
+  getImportStatus,
+  getInsights,
+  getSummaries,
+  getUnifiedTimeline,
+  parseDays,
+} from '../lib/viewModels.js'
 import { sendJson, sendSafeError } from '../lib/security.js'
 
 export async function handleImportStatus(
@@ -10,6 +17,18 @@ export async function handleImportStatus(
   try {
     const userId = await authorizeViewRequest(request)
     sendJson(response, 200, await getImportStatus(userId))
+  } catch (error) {
+    sendViewError(response, error)
+  }
+}
+
+export async function handleDriveSyncStatus(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  try {
+    const userId = await authorizeViewRequest(request)
+    sendJson(response, 200, await getDriveSyncStatus(userId))
   } catch (error) {
     sendViewError(response, error)
   }

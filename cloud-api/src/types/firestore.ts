@@ -54,3 +54,20 @@ export type ProcessedDriveFileDocument = {
   warningCount: number
   userId: string
 }
+
+export type DriveSyncRunDocument = {
+  runId: string
+  userId: string
+  startedAt: string
+  completedAt: string
+  status: 'completed' | 'completed_with_warnings'
+  listedFileCount: number
+  checkedFiles: number
+  processedFiles: number
+  skippedAlreadyProcessed: number
+  failedFiles: number
+  addedCount: number
+  skippedDuplicateCount: number
+  warningCount: number
+  rejectedRows: number
+}

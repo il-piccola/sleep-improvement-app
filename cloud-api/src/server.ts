@@ -5,6 +5,7 @@ import { handleHealthAutoExportIngest } from './routes/ingest.js'
 import { handleDriveSync } from './routes/driveSync.js'
 import {
   handleImportStatus,
+  handleDriveSyncStatus,
   handleInsights,
   handleSummaries,
   handleUnifiedTimeline,
@@ -50,6 +51,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/import-status') {
       await handleImportStatus(request, response)
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/drive-sync-status') {
+      await handleDriveSyncStatus(request, response)
       return
     }
 

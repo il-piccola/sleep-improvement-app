@@ -24,6 +24,16 @@ export function getDriveFolderId(): string | null {
   return process.env.HEALTH_EXPORT_DRIVE_FOLDER_ID?.trim() || null
 }
 
+export function getDriveSyncMaxFiles(): number | null {
+  const value = Number(process.env.DRIVE_SYNC_MAX_FILES)
+
+  if (!Number.isInteger(value) || value <= 0) {
+    return null
+  }
+
+  return value
+}
+
 export async function listHealthAutoExportJsonFiles(folderId: string): Promise<DriveJsonFile[]> {
   const token = await getAccessToken()
   const files: DriveJsonFile[] = []

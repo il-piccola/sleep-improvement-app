@@ -172,6 +172,25 @@ type CloudTimelinePayload = {
   }>
 }
 
+type DriveSyncStatusPayload = {
+  lastSyncAt: string | null
+  lastStatus: 'normal' | 'needs_attention' | 'not_synced'
+  processedDriveFileCount: number
+  latestBatchId: string | null
+  latestFileName: string | null
+  latestFileModifiedTime: string | null
+  lastCheckedFiles: number
+  lastProcessedFiles: number
+  lastSkippedAlreadyProcessed: number
+  lastFailedFiles: number
+  failedFiles: Array<{
+    fileName: string
+    errorSummary: string
+    processedAt: string | null
+  }>
+  warningCount: number
+}
+
 const screens: Array<{ id: AppScreen; label: string; shortLabel: string }> = [
   { id: 'dashboard', label: '今日の睡眠', shortLabel: '今日' },
   { id: 'timeline', label: 'タイムライン', shortLabel: '時間' },
@@ -205,6 +224,7 @@ function App() {
   const [localImportStatus, setLocalImportStatus] = useState<LocalImportStatus>({
     connected: false,
   })
+  const [driveSyncStatus, setDriveSyncStatus] = useState<DriveSyncStatusPayload | null>(null)
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUserInfo | null>(null)
   const firebaseAuthAvailable = Boolean(FIREBASE_AUTH)
 
@@ -292,6 +312,7 @@ function App() {
       }
 
       setLocalImportStatus(result.status)
+      setDriveSyncStatus(result.driveSyncStatus ?? null)
 
       if (result.records.length > 0) {
         setSleepData({
@@ -413,6 +434,7 @@ function App() {
           fileStatus={fileStatus}
           inputFileName={sleepData.inputFileName}
           localImportStatus={localImportStatus}
+          driveSyncStatus={driveSyncStatus}
           onRescan={handleLocalRescan}
           recordCount={sleepData.records.length}
           report={analysis.dataQuality}
@@ -508,6 +530,7 @@ function toSleepDataFile(result: HealthAutoExportImportResult): SleepDataFile {
 
 async function fetchLocalServerData(): Promise<{
   generatedAt?: string
+  driveSyncStatus?: DriveSyncStatusPayload | null
   records: SleepRecord[]
   warnings: string[]
   status: LocalImportStatus
@@ -551,6 +574,7 @@ async function fetchLocalServerData(): Promise<{
 
 async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
   generatedAt?: string
+  driveSyncStatus?: DriveSyncStatusPayload | null
   records: SleepRecord[]
   warnings: string[]
   status: LocalImportStatus
@@ -558,6 +582,7 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
   if (!FIREBASE_AUTH || !user) {
     return {
       records: [],
+      driveSyncStatus: null,
       warnings: [],
       status: {
         connected: false,
@@ -580,17 +605,22 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
       fetch(`${CLOUD_API_BASE_URL}/api/import-status`, { headers }),
       fetch(`${CLOUD_API_BASE_URL}/api/unified-timeline?days=30`, { headers }),
     ])
+    const driveStatusResponse = await fetch(`${CLOUD_API_BASE_URL}/api/drive-sync-status`, {
+      headers,
+    })
 
-    if (!statusResponse.ok || !timelineResponse.ok) {
+    if (!statusResponse.ok || !timelineResponse.ok || !driveStatusResponse.ok) {
       throw new Error('Cloud Run APIから睡眠データを取得できません。')
     }
 
     const statusPayload = (await statusResponse.json()) as CloudImportStatusPayload
     const timelinePayload = (await timelineResponse.json()) as CloudTimelinePayload
+    const driveSyncStatus = (await driveStatusResponse.json()) as DriveSyncStatusPayload
     const records = cloudTimelineToSleepRecords(timelinePayload)
 
     return {
       generatedAt: statusPayload.lastIngestedAt ?? undefined,
+      driveSyncStatus,
       records,
       warnings: [],
       status: {
@@ -613,6 +643,7 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
   } catch (error) {
     return {
       records: [],
+      driveSyncStatus: null,
       warnings: [],
       status: {
         connected: false,
@@ -672,6 +703,7 @@ async function requestLocalRescan(): Promise<LocalImportStatus> {
 }
 
 function DataDiagnosis({
+  driveSyncStatus,
   fileStatus,
   inputFileName,
   localImportStatus,
@@ -685,6 +717,7 @@ function DataDiagnosis({
   unifiedTimeline,
   warnings,
 }: {
+  driveSyncStatus: DriveSyncStatusPayload | null
   fileStatus: string
   inputFileName?: string
   localImportStatus: LocalImportStatus
@@ -752,6 +785,7 @@ function DataDiagnosis({
               {report.issues.length === 0 && <li>目立つ注意点はありません。</li>}
             </ul>
           </Panel>
+          <DriveSyncStatusCard driveSyncStatus={driveSyncStatus} />
           <Panel title="判定メモ">
             <ul className="plain-list">
               {warnings.map((warning) => (
@@ -1222,6 +1256,72 @@ function TrendCard({
         {trend.averageBlockCount.toFixed(1)}回です。今日の睡眠回数は{countText}です。
       </p>
     </article>
+  )
+}
+
+function DriveSyncStatusCard({
+  driveSyncStatus,
+}: {
+  driveSyncStatus: DriveSyncStatusPayload | null
+}) {
+  const label =
+    driveSyncStatus?.lastStatus === 'normal'
+      ? '正常に同期されています'
+      : driveSyncStatus?.lastStatus === 'needs_attention'
+        ? '確認が必要なファイルがあります'
+        : 'Drive同期はまだ確認できていません'
+  const tone = driveSyncStatus?.lastStatus === 'needs_attention' ? 'warning' : 'good'
+
+  return (
+    <Panel title="Google Drive同期">
+      <div className={`drive-sync-banner ${tone}`}>
+        <span>同期状態</span>
+        <strong>{label}</strong>
+      </div>
+      <div className="diagnosis-list">
+        <StatusRow
+          label="最終同期"
+          value={formatDateTime(driveSyncStatus?.lastSyncAt ?? undefined)}
+        />
+        <StatusRow
+          label="処理済みDriveファイル"
+          value={`${driveSyncStatus?.processedDriveFileCount ?? 0}件`}
+        />
+        <StatusRow label="前回チェック" value={`${driveSyncStatus?.lastCheckedFiles ?? 0}件`} />
+        <StatusRow label="前回処理" value={`${driveSyncStatus?.lastProcessedFiles ?? 0}件`} />
+        <StatusRow
+          label="処理済みスキップ"
+          value={`${driveSyncStatus?.lastSkippedAlreadyProcessed ?? 0}件`}
+        />
+        <StatusRow
+          label="確認が必要なファイル"
+          value={`${driveSyncStatus?.lastFailedFiles ?? 0}件`}
+        />
+      </div>
+      {driveSyncStatus && (
+        <details className="drive-sync-details">
+          <summary>同期の詳細</summary>
+          <div className="diagnosis-list">
+            <StatusRow label="最後のファイル" value={driveSyncStatus.latestFileName ?? 'なし'} />
+            <StatusRow
+              label="ファイル更新時刻"
+              value={formatDateTime(driveSyncStatus.latestFileModifiedTime ?? undefined)}
+            />
+            <StatusRow label="警告" value={`${driveSyncStatus.warningCount}件`} />
+            <StatusRow label="最新batch" value={driveSyncStatus.latestBatchId ?? 'なし'} />
+          </div>
+          {driveSyncStatus.failedFiles.length > 0 && (
+            <ul className="quality-list">
+              {driveSyncStatus.failedFiles.map((file) => (
+                <li className="warning" key={`${file.fileName}-${file.processedAt ?? ''}`}>
+                  {file.fileName}: {file.errorSummary}
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
+      )}
+    </Panel>
   )
 }
 

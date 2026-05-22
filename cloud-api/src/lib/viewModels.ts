@@ -1,6 +1,11 @@
 import { getDefaultUserId } from './batches.js'
 import { getFirestoreDb, isFirestoreAuthError } from './firestore.js'
-import type { IngestBatchDocument, SleepRecordDocument } from '../types/firestore.js'
+import type {
+  DriveSyncRunDocument,
+  IngestBatchDocument,
+  ProcessedDriveFileDocument,
+  SleepRecordDocument,
+} from '../types/firestore.js'
 
 type SleepBlockView = {
   start: string
@@ -22,6 +27,25 @@ type SummaryView = {
 type DayModel = {
   date: string
   blocks: SleepBlockView[]
+}
+
+type DriveSyncStatusView = {
+  lastSyncAt: string | null
+  lastStatus: 'normal' | 'needs_attention' | 'not_synced'
+  processedDriveFileCount: number
+  latestBatchId: string | null
+  latestFileName: string | null
+  latestFileModifiedTime: string | null
+  lastCheckedFiles: number
+  lastProcessedFiles: number
+  lastSkippedAlreadyProcessed: number
+  lastFailedFiles: number
+  failedFiles: Array<{
+    fileName: string
+    errorSummary: string
+    processedAt: string | null
+  }>
+  warningCount: number
 }
 
 export class ViewApiError extends Error {
@@ -80,6 +104,60 @@ export async function getImportStatus(userId = getDefaultUserId()): Promise<{
       skippedDuplicateCount: latest?.skippedDuplicateCount ?? 0,
       warningCount: latest?.warningCount ?? 0,
       sleepRecordCount: countSnapshot.data().count,
+    }
+  } catch (error) {
+    throw new ViewApiError(error)
+  }
+}
+
+export async function getDriveSyncStatus(
+  userId = getDefaultUserId(),
+): Promise<DriveSyncStatusView> {
+  try {
+    const db = getFirestoreDb()
+    const userRef = db.collection('users').doc(userId)
+    const [runs, processedCount, latestProcessed, failedFilesSnapshot] = await Promise.all([
+      userRef.collection('drive_sync_runs').orderBy('completedAt', 'desc').limit(1).get(),
+      userRef.collection('processed_drive_files').count().get(),
+      userRef.collection('processed_drive_files').orderBy('processedAt', 'desc').limit(1).get(),
+      userRef
+        .collection('processed_drive_files')
+        .where('status', '==', 'failed')
+        .limit(5)
+        .get(),
+    ])
+    const latestRun = runs.docs[0]?.data() as Partial<DriveSyncRunDocument> | undefined
+    const latestFile = latestProcessed.docs[0]?.data() as
+      | Partial<ProcessedDriveFileDocument>
+      | undefined
+    const failedFiles = failedFilesSnapshot.docs.map((doc) => {
+      const file = doc.data() as Partial<ProcessedDriveFileDocument>
+      return {
+        fileName: file.fileName ?? '名前なし',
+        errorSummary: file.errorSummary ?? '確認が必要です。',
+        processedAt: file.processedAt ?? null,
+      }
+    })
+    const failedFileCount = latestRun?.failedFiles ?? 0
+    const warningCount = latestRun?.warningCount ?? 0
+
+    return {
+      lastSyncAt: latestRun?.completedAt ?? null,
+      lastStatus: !latestRun
+        ? 'not_synced'
+        : failedFileCount > 0 || warningCount > 0
+          ? 'needs_attention'
+          : 'normal',
+      processedDriveFileCount: processedCount.data().count,
+      latestBatchId: latestFile?.batchId ?? null,
+      latestFileName: latestFile?.fileName ?? null,
+      latestFileModifiedTime: latestFile?.modifiedTime ?? null,
+      lastCheckedFiles: latestRun?.checkedFiles ?? 0,
+      lastProcessedFiles: latestRun?.processedFiles ?? 0,
+      lastSkippedAlreadyProcessed: latestRun?.skippedAlreadyProcessed ?? 0,
+      lastFailedFiles: failedFileCount,
+      failedFiles,
+      warningCount,
     }
   } catch (error) {
     throw new ViewApiError(error)

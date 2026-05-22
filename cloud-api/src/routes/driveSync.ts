@@ -10,6 +10,7 @@ import {
 import {
   downloadDriveJsonFile,
   getDriveFolderId,
+  getDriveSyncMaxFiles,
   listHealthAutoExportJsonFiles,
 } from '../lib/drive.js'
 import { normalizeHealthAutoExportJson } from '../lib/healthAutoExport.js'
@@ -18,6 +19,7 @@ import {
   saveProcessedDriveFile,
   shouldProcessDriveFile,
 } from '../lib/processedDriveFiles.js'
+import { DriveSyncRunSaveError, saveDriveSyncRun } from '../lib/driveSyncRuns.js'
 import { isAuthorized, sendJson, sendSafeError } from '../lib/security.js'
 import { saveSleepRecords, SleepRecordSaveError } from '../lib/sleepRecords.js'
 
@@ -58,8 +60,12 @@ export async function handleDriveSync(
   }
 
   try {
+    const runId = randomUUID()
+    const startedAt = new Date().toISOString()
     const userId = getDefaultUserId()
-    const files = await listHealthAutoExportJsonFiles(folderId)
+    const maxFiles = getDriveSyncMaxFiles()
+    const listedFiles = await listHealthAutoExportJsonFiles(folderId)
+    const files = maxFiles ? listedFiles.slice(0, maxFiles) : listedFiles
     const results: DriveSyncFileResult[] = []
 
     for (const file of files) {
@@ -81,20 +87,51 @@ export async function handleDriveSync(
       results.push(await processDriveFile(userId, file))
     }
 
+    const processedFiles = results.filter((result) => result.status === 'processed').length
+    const skippedAlreadyProcessed = results.filter((result) => result.status === 'skipped').length
+    const failedFiles = results.filter((result) => result.status === 'failed').length
+    const addedCount = results.reduce((sum, result) => sum + result.addedCount, 0)
+    const skippedDuplicateCount = results.reduce(
+      (sum, result) => sum + result.skippedDuplicateCount,
+      0,
+    )
+    const warningCount = results.reduce((sum, result) => sum + result.warningCount, 0)
+    const rejectedRows = results.reduce((sum, result) => sum + result.rejectedRows, 0)
+
+    await saveDriveSyncRun({
+      runId,
+      userId,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      status: failedFiles > 0 || warningCount > 0 ? 'completed_with_warnings' : 'completed',
+      listedFileCount: listedFiles.length,
+      checkedFiles: files.length,
+      processedFiles,
+      skippedAlreadyProcessed,
+      failedFiles,
+      addedCount,
+      skippedDuplicateCount,
+      warningCount,
+      rejectedRows,
+    })
+
     sendJson(response, 200, {
       ok: true,
       folderId,
+      checkedFiles: files.length,
+      listedFileCount: listedFiles.length,
       scannedFileCount: files.length,
-      processedFileCount: results.filter((result) => result.status === 'processed').length,
-      skippedFileCount: results.filter((result) => result.status === 'skipped').length,
-      failedFileCount: results.filter((result) => result.status === 'failed').length,
-      addedCount: results.reduce((sum, result) => sum + result.addedCount, 0),
-      skippedDuplicateCount: results.reduce(
-        (sum, result) => sum + result.skippedDuplicateCount,
-        0,
-      ),
-      warningCount: results.reduce((sum, result) => sum + result.warningCount, 0),
-      rejectedRows: results.reduce((sum, result) => sum + result.rejectedRows, 0),
+      maxFiles,
+      processedFiles,
+      skippedAlreadyProcessed,
+      failedFiles,
+      processedFileCount: processedFiles,
+      skippedFileCount: skippedAlreadyProcessed,
+      failedFileCount: failedFiles,
+      addedCount,
+      skippedDuplicateCount,
+      warningCount,
+      rejectedRows,
       files: results.map((result) => ({
         fileId: result.fileId,
         fileName: result.fileName,
@@ -111,7 +148,8 @@ export async function handleDriveSync(
     if (
       error instanceof FirestoreSaveError ||
       error instanceof SleepRecordSaveError ||
-      error instanceof ProcessedDriveFileError
+      error instanceof ProcessedDriveFileError ||
+      error instanceof DriveSyncRunSaveError
     ) {
       sendSafeError(response, 500, error.message)
       return
