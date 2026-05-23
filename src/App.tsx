@@ -53,6 +53,8 @@ type AppScreen =
   | 'sources'
   | 'import'
 
+type TimelineViewMode = 'unified' | 'raw'
+
 type SleepDataFile = {
   generatedAt?: string
   sourceKind?: string
@@ -220,7 +222,7 @@ function App() {
     loadStoredSourcePreferences,
   )
   const [fileStatus, setFileStatus] = useState('匿名サンプルを使用中')
-  const [timelineView, setTimelineView] = useState<'unified' | 'raw'>('unified')
+  const [timelineView, setTimelineView] = useState<TimelineViewMode>('unified')
   const [localImportStatus, setLocalImportStatus] = useState<LocalImportStatus>({
     connected: false,
   })
@@ -411,24 +413,6 @@ function App() {
         ))}
       </nav>
 
-      <div className="timeline-view-toggle" aria-label="統合表示の切り替え">
-        <span>表示データ</span>
-        <button
-          className={timelineView === 'unified' ? 'active' : ''}
-          onClick={() => setTimelineView('unified')}
-          type="button"
-        >
-          統合後を見る
-        </button>
-        <button
-          className={timelineView === 'raw' ? 'active' : ''}
-          onClick={() => setTimelineView('raw')}
-          type="button"
-        >
-          統合前を見る
-        </button>
-      </div>
-
       {activeScreen === 'diagnosis' && (
         <DataDiagnosis
           fileStatus={fileStatus}
@@ -450,6 +434,7 @@ function App() {
       {activeScreen === 'dashboard' && (
         <TodaySleep
           actions={analysis.todayActions}
+          driveSyncStatus={driveSyncStatus}
           importedAt={sleepData.generatedAt}
           localImportStatus={localImportStatus}
           metrics={analysis.todayMetrics}
@@ -459,10 +444,20 @@ function App() {
         />
       )}
 
-      {activeScreen === 'timeline' && <SleepTimeline summaries={visibleSummaries} />}
+      {activeScreen === 'timeline' && (
+        <SleepTimeline
+          summaries={visibleSummaries}
+          timelineView={timelineView}
+          onTimelineViewChange={setTimelineView}
+        />
+      )}
 
       {activeScreen === 'fragmentation' && (
-        <FragmentationDetail summaries={visibleSummaries} />
+        <FragmentationDetail
+          summaries={visibleSummaries}
+          timelineView={timelineView}
+          onTimelineViewChange={setTimelineView}
+        />
       )}
 
       {activeScreen === 'actions' && <TodayActions actions={analysis.actions} />}
@@ -964,6 +959,7 @@ function DataDiagnosis({
 
 function TodaySleep({
   actions,
+  driveSyncStatus,
   importedAt,
   localImportStatus,
   metrics,
@@ -972,6 +968,7 @@ function TodaySleep({
   targetSleepDayKey,
 }: {
   actions: ImprovementAction[]
+  driveSyncStatus: DriveSyncStatusPayload | null
   importedAt?: string
   localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
@@ -980,33 +977,61 @@ function TodaySleep({
   targetSleepDayKey: string
 }) {
   const syncStatus = getCompactSyncStatus(localImportStatus, importedAt)
+  const latestSummary = summaries[0] ?? null
+  const latestMetrics = latestSummary ? getDayMetrics(latestSummary) : null
 
   if (!summary || !metrics) {
     return (
       <section className="today-screen">
-        <div className="today-hero">
+        <div className="today-hero empty">
           <div className="today-hero-main">
             <p className="eyebrow">今日の睡眠</p>
-            <h2>{targetSleepDayKey}</h2>
+            <h2>今日の睡眠データはまだ届いていません</h2>
             <p>
-              最終取り込み: <strong>{formatDateTime(importedAt)}</strong>
+              18:00から翌18:00までを1つの睡眠日として見ています。対象の睡眠日
+              <strong>{targetSleepDayKey}</strong>
+              のデータが届くと、ここに今日の状態を表示します。
             </p>
             <CompactSyncStatus status={syncStatus} />
           </div>
           <div className="today-total">
-            <span>総睡眠時間</span>
-            <strong>今日のデータなし</strong>
+            <span>表示状態</span>
+            <strong>データ待ち</strong>
           </div>
         </div>
-        <article className="morning-action">
-          <span>今日のデータ</span>
-          <h2>対象の睡眠日データがありません</h2>
-          <p>
-            18:00から翌18:00までを1つの睡眠日として見ています。対象の睡眠日
-            {targetSleepDayKey}
-            のデータが取り込まれていないため、古い睡眠日は今日の睡眠として表示しません。
-          </p>
-        </article>
+
+        <TimelinePlaceholder />
+
+        <div className="empty-dashboard-grid">
+          <article className="morning-action">
+            <span>最後に取得した睡眠</span>
+            <h2>{latestSummary ? latestSummary.sleepDayKey : 'まだありません'}</h2>
+            <p>
+              {latestSummary && latestMetrics
+                ? `直近の記録は${formatMinutes(latestSummary.totalSleepMinutes)}、睡眠回数は${latestSummary.blockCount}回です。`
+                : 'Google Drive同期後に、直近の睡眠日がここに表示されます。'}
+            </p>
+          </article>
+          <DriveSyncMiniCard driveSyncStatus={driveSyncStatus} />
+        </div>
+
+        <section className="today-actions-panel next-step-panel">
+          <h2>次にできること</h2>
+          <div className="next-step-grid">
+            <div>
+              <strong>データ診断を見る</strong>
+              <span>Google Drive同期と取り込み状態を確認します。</span>
+            </div>
+            <div>
+              <strong>直近7日の睡眠を見る</strong>
+              <span>タイムラインで最近の睡眠の形を確認します。</span>
+            </div>
+            <div>
+              <strong>Health Auto Exportを確認</strong>
+              <span>iPhone側の出力とDrive保存先を見ます。</span>
+            </div>
+          </div>
+        </section>
       </section>
     )
   }
@@ -1039,6 +1064,8 @@ function TodaySleep({
         </div>
       </div>
 
+      <SleepTimeline24h summary={summary} />
+
       {primaryAction && (
         <article className="morning-action">
           <span>今日やること</span>
@@ -1060,7 +1087,7 @@ function TodaySleep({
         </div>
       </section>
 
-      <SleepTimeline24h summary={summary} />
+      <DriveSyncMiniCard driveSyncStatus={driveSyncStatus} />
 
       <div className="score-insight-grid">
         <ScoreInsightCard
@@ -1122,6 +1149,71 @@ function CompactSyncStatus({
       <span>{status.label}</span>
       <strong>{status.detail}</strong>
     </div>
+  )
+}
+
+function TimelinePlaceholder() {
+  return (
+    <section className="today-actions-panel sleep-day-timeline timeline-placeholder-card">
+      <div className="section-head-row">
+        <h2>24時間睡眠タイムライン</h2>
+        <span className="timeline-window">18:00 - 翌18:00</span>
+      </div>
+      <div className="timeline-scale" aria-hidden="true">
+        <span>18:00</span>
+        <span>0:00</span>
+        <span>6:00</span>
+        <span>12:00</span>
+        <span>18:00</span>
+      </div>
+      <div
+        aria-label="今日の睡眠データ取得後に表示される24時間タイムライン"
+        className="timeline-track placeholder"
+        role="img"
+      >
+        <span className="timeline-empty">データが届くと、ここに睡眠ブロックが表示されます</span>
+      </div>
+      <p className="timeline-placeholder-copy">
+        今日の睡眠バーは取得待ちです。直近データや同期状態は下のカードで確認できます。
+      </p>
+    </section>
+  )
+}
+
+function DriveSyncMiniCard({
+  driveSyncStatus,
+}: {
+  driveSyncStatus: DriveSyncStatusPayload | null
+}) {
+  const isNormal = driveSyncStatus?.lastStatus === 'normal'
+  const needsAttention = driveSyncStatus?.lastStatus === 'needs_attention'
+
+  return (
+    <article className={`drive-sync-mini ${needsAttention ? 'warning' : 'normal'}`}>
+      <span>Google Drive同期</span>
+      <strong>
+        {isNormal
+          ? '正常に同期されています'
+          : needsAttention
+            ? '確認が必要なファイルがあります'
+            : '同期状態を確認中です'}
+      </strong>
+      <div className="drive-sync-mini-grid">
+        <MiniFact
+          label="最終同期"
+          value={formatDateTime(driveSyncStatus?.lastSyncAt ?? undefined)}
+        />
+        <MiniFact
+          label="要確認"
+          value={`${driveSyncStatus?.lastFailedFiles ?? 0}件`}
+        />
+        <MiniFact
+          label="処理済み"
+          value={`${driveSyncStatus?.processedDriveFileCount ?? 0}件`}
+        />
+      </div>
+      <p>詳細はデータ診断タブで確認できます。</p>
+    </article>
   )
 }
 
@@ -1402,12 +1494,75 @@ function AutoImportStatusPanel({
   )
 }
 
-function SleepTimeline({ summaries }: { summaries: SleepDaySummary[] }) {
+function SleepTimeline({
+  onTimelineViewChange,
+  summaries,
+  timelineView,
+}: {
+  onTimelineViewChange: (view: TimelineViewMode) => void
+  summaries: SleepDaySummary[]
+  timelineView: TimelineViewMode
+}) {
+  if (summaries.length === 0) {
+    return (
+      <section className="stack timeline-screen">
+        <PageHeader
+          eyebrow="タイムライン"
+          title="睡眠の形を日ごとに見る"
+          description="18:00から翌18:00までの24時間バーで、主睡眠・仮眠・補助睡眠の並びを確認します。"
+        />
+        <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+        <EmptyState
+          title="この期間の睡眠データはまだありません"
+          description="Google Drive同期またはファイル読み込みが完了すると、日ごとの24時間バーがここに並びます。データ診断タブで同期状態を確認できます。"
+          actionLabel="データ診断で同期状態を確認"
+        />
+      </section>
+    )
+  }
+
   return (
-    <section className="stack">
+    <section className="stack timeline-screen">
+      <PageHeader
+        eyebrow="タイムライン"
+        title="睡眠の形を日ごとに見る"
+        description="日ごとの24時間バーを縦に並べています。細かいブロック一覧は各日の詳細から確認できます。"
+      />
+      <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+      <SectionIntro
+        title="日ごとの24時間バー"
+        description="18:00 / 0:00 / 6:00 / 12:00 / 18:00 の流れで、複数回の睡眠も同じ線上に残します。"
+      />
       {summaries.map((summary) => (
-        <Panel key={summary.sleepDayKey} title={`${summary.sleepDayKey} の睡眠`}>
-          <SleepTimeline24h embedded summary={summary} />
+        <TimelineDayCard key={summary.sleepDayKey} summary={summary} />
+      ))}
+    </section>
+  )
+}
+
+function TimelineDayCard({ summary }: { summary: SleepDaySummary }) {
+  const metrics = getDayMetrics(summary)
+  const status = getTimelineDayStatus(summary)
+
+  return (
+    <article className="timeline-day-card">
+      <div className="timeline-day-head">
+        <div>
+          <p className="eyebrow">睡眠日</p>
+          <h2>{summary.sleepDayKey}</h2>
+        </div>
+        <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+      </div>
+      <div className="timeline-day-metrics">
+        <MetricPill label="総睡眠" value={formatMinutes(summary.totalSleepMinutes)} />
+        <MetricPill label="睡眠回数" value={`${summary.blockCount}回`} />
+        <MetricPill label="主睡眠候補" value={formatBlock(metrics.mainSleep)} />
+      </div>
+      <TimelineBar summary={summary} />
+      <DetailDisclosure title="睡眠ブロックの詳細">
+        {summary.classifiedBlocks.length === 0 ? (
+          <p className="muted">表示できる睡眠ブロックがありません。</p>
+        ) : (
           <div className="timeline">
             {summary.classifiedBlocks.map((block) => (
               <article className="timeline-item" key={block.id}>
@@ -1428,15 +1583,29 @@ function SleepTimeline({ summaries }: { summaries: SleepDaySummary[] }) {
               </article>
             ))}
           </div>
-        </Panel>
-      ))}
-    </section>
+        )}
+      </DetailDisclosure>
+    </article>
   )
 }
 
-function FragmentationDetail({ summaries }: { summaries: SleepDaySummary[] }) {
+function FragmentationDetail({
+  onTimelineViewChange,
+  summaries,
+  timelineView,
+}: {
+  onTimelineViewChange: (view: TimelineViewMode) => void
+  summaries: SleepDaySummary[]
+  timelineView: TimelineViewMode
+}) {
   return (
     <section className="stack">
+      <PageHeader
+        eyebrow="分割睡眠"
+        title="主睡眠と短い睡眠の関係を見る"
+        description="睡眠が何回に分かれているか、どのブロックを主睡眠候補として見ているかを確認します。"
+      />
+      <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
       {summaries.map((summary) => (
         <Panel key={summary.sleepDayKey} title={`${summary.sleepDayKey} の分割睡眠`}>
           <div className="detail-head">
@@ -1925,6 +2094,171 @@ function FileImport({
   )
 }
 
+function PageHeader({
+  description,
+  eyebrow,
+  title,
+}: {
+  description: string
+  eyebrow: string
+  title: string
+}) {
+  return (
+    <header className="page-header">
+      <p className="eyebrow">{eyebrow}</p>
+      <h2>{title}</h2>
+      <p>{description}</p>
+    </header>
+  )
+}
+
+function SectionIntro({
+  description,
+  title,
+}: {
+  description: string
+  title: string
+}) {
+  return (
+    <section className="section-intro">
+      <h2>{title}</h2>
+      <p>{description}</p>
+    </section>
+  )
+}
+
+function StatusBadge({
+  children,
+  tone = 'calm',
+}: {
+  children: React.ReactNode
+  tone?: 'good' | 'notice' | 'calm'
+}) {
+  return <span className={`status-badge ${tone}`}>{children}</span>
+}
+
+function EmptyState({
+  actionLabel,
+  description,
+  title,
+}: {
+  actionLabel?: string
+  description: string
+  title: string
+}) {
+  return (
+    <section className="empty-state redesigned-empty-state">
+      <p className="eyebrow">データ待ち</p>
+      <h2>{title}</h2>
+      <p>{description}</p>
+      {actionLabel && <span className="empty-state-action">{actionLabel}</span>}
+    </section>
+  )
+}
+
+function DetailDisclosure({
+  children,
+  title,
+}: {
+  children: React.ReactNode
+  title: string
+}) {
+  return (
+    <details className="detail-disclosure">
+      <summary>{title}</summary>
+      <div>{children}</div>
+    </details>
+  )
+}
+
+function MetricPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric-pill">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function DataViewToggle({
+  onChange,
+  value,
+}: {
+  onChange: (view: TimelineViewMode) => void
+  value: TimelineViewMode
+}) {
+  return (
+    <section className="data-view-toggle" aria-label="表示データの切り替え">
+      <div>
+        <strong>表示データ</strong>
+        <p>統合後は重複を整理した睡眠データ、統合前は元データに近い表示です。</p>
+      </div>
+      <div className="data-view-toggle-buttons">
+        <button
+          className={value === 'unified' ? 'active' : ''}
+          onClick={() => onChange('unified')}
+          type="button"
+        >
+          統合後を見る
+        </button>
+        <button
+          className={value === 'raw' ? 'active' : ''}
+          onClick={() => onChange('raw')}
+          type="button"
+        >
+          統合前を見る
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function TimelineBar({ summary }: { summary: SleepDaySummary }) {
+  const segments = getSleepTimelineSegments(summary)
+
+  return (
+    <section className="timeline-bar" aria-label={`${summary.sleepDayKey}の24時間バー`}>
+      <div className="timeline-scale" aria-hidden="true">
+        <span>18:00</span>
+        <span>0:00</span>
+        <span>6:00</span>
+        <span>12:00</span>
+        <span>18:00</span>
+      </div>
+      <div className="timeline-track" role="img">
+        {segments.map((segment) => (
+          <div
+            className={`timeline-segment ${segment.tone}`}
+            key={segment.id}
+            style={{ left: `${segment.left}%`, width: `${segment.width}%` }}
+            title={`${segment.label} ${segment.timeRange} ${segment.duration}`}
+          />
+        ))}
+        {segments.length === 0 && <span className="timeline-empty">表示できる睡眠ブロックがありません</span>}
+      </div>
+      {segments.length > 0 && (
+        <div className="timeline-block-labels" aria-label="睡眠ブロックの時刻">
+          {segments.map((segment) => (
+            <span
+              className={segment.tone}
+              key={`${segment.id}-label`}
+              style={{ left: `${segment.left}%`, width: `${segment.width}%` }}
+            >
+              {segment.timeRange}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="timeline-legend compact">
+        <span className="main">主睡眠候補</span>
+        <span className="nap">仮眠</span>
+        <span className="evening">夕方睡眠</span>
+        <span className="support">補助睡眠</span>
+      </div>
+    </section>
+  )
+}
+
 function Panel({ children, title }: { children: React.ReactNode; title: string }) {
   return (
     <section className="panel">
@@ -2311,6 +2645,29 @@ function buildTodayFocusPoints(
   })
 
   return points
+}
+
+function getTimelineDayStatus(summary: SleepDaySummary): {
+  label: string
+  tone: 'good' | 'notice' | 'calm'
+} {
+  if (summary.blockCount === 0) {
+    return { label: 'データなし', tone: 'calm' }
+  }
+
+  if (summary.blockCount === 1 && summary.fragmentation.score <= 30) {
+    return { label: 'まとまりあり', tone: 'good' }
+  }
+
+  if (summary.classifiedBlocks.some((block) => block.isEveningSleep)) {
+    return { label: '夕方睡眠あり', tone: 'notice' }
+  }
+
+  if (summary.blockCount >= 3 || summary.fragmentation.score >= 60) {
+    return { label: '分散気味', tone: 'notice' }
+  }
+
+  return { label: '確認しやすい記録', tone: 'calm' }
 }
 
 function getSleepTimelineSegments(summary: SleepDaySummary): TimelineSegment[] {
