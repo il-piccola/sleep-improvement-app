@@ -395,6 +395,150 @@
   gap: 10px;
 }
 
+.fragmentation-day-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-soft);
+  text-align: left;
+}
+
+.fragmentation-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 16px;
+  border: 1px solid #bdd7d0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--color-good), #f8fbff);
+}
+
+.fragmentation-hero h2 {
+  margin: 0 0 6px;
+  color: var(--color-ink);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.fragmentation-hero p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.fragmentation-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fragmentation-check-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.fragmentation-check-card span {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.fragmentation-check-card strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-ink);
+  font-size: 20px;
+}
+
+.fragmentation-check-card p {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+}
+
+.fragmentation-check-card .score-gauge {
+  min-height: 0;
+}
+
+.action-screen {
+  gap: 16px;
+}
+
+.action-group {
+  display: grid;
+  gap: 12px;
+}
+
+.action-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.action-task-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-soft);
+  text-align: left;
+}
+
+.action-task-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.action-task-card h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.action-task-card p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 16px;
+}
+
+.action-task-card small {
+  color: #5f6878;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.action-state-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.action-state-row span {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #31536a;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
 .management-status-card {
   display: grid;
   gap: 10px;
@@ -1972,6 +2116,10 @@
   .data-view-toggle,
   .timeline-day-metrics,
   .management-metric-grid,
+  .fragmentation-hero,
+  .fragmentation-metrics,
+  .fragmentation-check-card,
+  .action-card-grid,
   .empty-dashboard-grid,
   .drive-sync-mini-grid,
   .next-step-grid,
@@ -2041,6 +2189,19 @@
 
   .metric-pill strong {
     font-size: 19px;
+  }
+
+  .fragmentation-hero h2 {
+    font-size: 24px;
+  }
+
+  .action-task-head,
+  .action-state-row {
+    grid-template-columns: 1fr;
+  }
+
+  .action-task-head {
+    display: grid;
   }
 
   .today-hero h2 {

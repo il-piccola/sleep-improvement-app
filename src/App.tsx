@@ -1628,32 +1628,71 @@ function FragmentationDetail({
         description="睡眠が何回に分かれているか、どのブロックを主睡眠候補として見ているかを確認します。"
       />
       <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+      {summaries.length === 0 && (
+        <EmptyState
+          title="分割睡眠データはまだありません"
+          description="データが届くと、睡眠が何回に分かれたか、主睡眠候補と短い睡眠の関係をここに表示します。"
+          actionLabel="データ診断で同期状態を確認"
+        />
+      )}
       {summaries.map((summary) => (
-        <Panel key={summary.sleepDayKey} title={`${summary.sleepDayKey} の分割睡眠`}>
-          <div className="detail-head">
-            <ScoreGauge title="分割睡眠スコア" score={summary.fragmentation.score} />
-            <div>
-              <p className="detail-label">{summary.fragmentation.label}</p>
-              <ul className="plain-list compact">
-                {summary.fragmentation.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <SleepRelationDiagram summary={summary} />
-          <div className="block-list">
-            {summary.classifiedBlocks.map((block) => (
-              <div className="block-row" key={block.id}>
-                <span>{formatTimeRange(block)}</span>
-                <strong>{formatMinutes(block.durationMinutes)}</strong>
-                <span>{block.labels.map(toBlockLabel).join(' / ')}</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
+        <FragmentationDayCard key={summary.sleepDayKey} summary={summary} />
       ))}
     </section>
+  )
+}
+
+function FragmentationDayCard({ summary }: { summary: SleepDaySummary }) {
+  const metrics = getDayMetrics(summary)
+  const status = getTimelineDayStatus(summary)
+
+  return (
+    <article className="fragmentation-day-card">
+      <div className="fragmentation-hero">
+        <div>
+          <p className="eyebrow">{summary.sleepDayKey}</p>
+          <h2>{summary.blockCount}回に分かれています</h2>
+          <p>
+            {summary.blockCount <= 1
+              ? '主睡眠候補を中心にまとまっています。'
+              : '主睡眠候補と短い睡眠の関係を確認します。'}
+          </p>
+        </div>
+        <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+      </div>
+      <div className="fragmentation-metrics">
+        <MetricPill label="総睡眠" value={formatMinutes(summary.totalSleepMinutes)} />
+        <MetricPill label="主睡眠候補" value={formatBlock(metrics.mainSleep)} />
+        <MetricPill label="仮眠" value={formatBlockCount(metrics.napBlocks)} />
+        <MetricPill label="夕方睡眠" value={metrics.eveningBlocks.length > 0 ? 'あり' : 'なし'} />
+      </div>
+      <TimelineBar summary={summary} />
+      <SleepRelationDiagram summary={summary} />
+      <section className="fragmentation-check-card">
+        <div>
+          <span>確認するとよいこと</span>
+          <strong>{summary.fragmentation.label}</strong>
+          <p>{summary.fragmentation.reasons[0] ?? '睡眠ブロックのまとまりを確認します。'}</p>
+        </div>
+        <ScoreGauge title="分割睡眠スコア" score={summary.fragmentation.score} />
+      </section>
+      <DetailDisclosure title="スコア理由と睡眠ブロックの詳細">
+        <ul className="plain-list compact">
+          {summary.fragmentation.reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+        <div className="block-list">
+          {summary.classifiedBlocks.map((block) => (
+            <div className="block-row" key={block.id}>
+              <span>{formatTimeRange(block)}</span>
+              <strong>{formatMinutes(block.durationMinutes)}</strong>
+              <span>{block.labels.map(toBlockLabel).join(' / ')}</span>
+            </div>
+          ))}
+        </div>
+      </DetailDisclosure>
+    </article>
   )
 }
 
@@ -1692,16 +1731,98 @@ function SleepRelationDiagram({ summary }: { summary: SleepDaySummary }) {
 }
 
 function TodayActions({ actions }: { actions: ImprovementAction[] }) {
+  const fallbackActions: ImprovementAction[] =
+    actions.length > 0
+      ? actions
+      : [
+          {
+            id: 'basic-morning-light',
+            priority: 'medium',
+            title: '起きたら部屋を明るくする',
+            description: 'カーテンを開ける、照明をつける、短く外に出るなど、朝の合図を1つ作ります。',
+            basis: '睡眠データがまだ少ないため、基本の行動を表示しています。',
+          },
+          {
+            id: 'basic-evening-calm',
+            priority: 'low',
+            title: '寝る前の刺激を少し弱める',
+            description: '照明、通知、長い動画を少し控えめにして、眠る前の切り替えを作ります。',
+            basis: '無理なく続けやすい基本アクションです。',
+          },
+        ]
+  const todayActions = fallbackActions.filter((action) => action.priority === 'high').slice(0, 2)
+  const weeklyActions = fallbackActions.filter((action) => action.priority === 'medium').slice(0, 3)
+  const enoughActions = fallbackActions.filter((action) => action.priority === 'low').slice(0, 3)
+  const primaryTodayActions = todayActions.length > 0 ? todayActions : fallbackActions.slice(0, 1)
+
   return (
-    <section className="action-list">
-      {actions.map((action) => (
-        <article className="action-item" key={action.id}>
-          <span className={`priority ${action.priority}`}>{toPriorityLabel(action.priority)}</span>
-          <h2>{action.title}</h2>
-          <p>{action.description}</p>
-          <small>{action.basis}</small>
-        </article>
-      ))}
+    <section className="action-list action-screen">
+      <PageHeader
+        eyebrow="改善アクション"
+        title="今日できることを選ぶ"
+        description="診断や指示ではなく、睡眠の傾向から生活で試しやすい目安を出します。できるものを1つ選べば十分です。"
+      />
+      {actions.length === 0 && (
+        <EmptyState
+          title="睡眠データが少ないため、基本アクションを表示しています"
+          description="データが増えると、分割睡眠や昼夜リズムの傾向に合わせた行動がここに並びます。"
+        />
+      )}
+      <ActionGroup
+        actions={primaryTodayActions}
+        description="今日まず見る行動です。全部やる必要はありません。"
+        title="今日やること"
+      />
+      <ActionGroup
+        actions={weeklyActions}
+        description="数日かけて整える行動です。無理なく続けやすいものを選びます。"
+        title="今週意識すること"
+      />
+      <ActionGroup
+        actions={enoughActions}
+        description="余裕がある時だけで十分な行動です。小さく続けるための候補です。"
+        title="できたら十分"
+      />
+    </section>
+  )
+}
+
+function ActionGroup({
+  actions,
+  description,
+  title,
+}: {
+  actions: ImprovementAction[]
+  description: string
+  title: string
+}) {
+  if (actions.length === 0) {
+    return null
+  }
+
+  return (
+    <section className="action-group">
+      <SectionIntro title={title} description={description} />
+      <div className="action-card-grid">
+        {actions.map((action) => (
+          <article className="action-task-card" key={action.id}>
+            <div className="action-task-head">
+              <span className={`priority ${action.priority}`}>{toPriorityLabel(action.priority)}</span>
+              <StatusBadge tone={action.priority === 'high' ? 'notice' : 'calm'}>
+                {toActionStatusLabel(action.priority)}
+              </StatusBadge>
+            </div>
+            <h2>{action.title}</h2>
+            <p>{action.description}</p>
+            <small>理由: {action.basis}</small>
+            <div className="action-state-row" aria-label="行動状態">
+              <span>今日試す</span>
+              <span>見送り</span>
+              <span>あとで確認</span>
+            </div>
+          </article>
+        ))}
+      </div>
     </section>
   )
 }
@@ -2960,6 +3081,18 @@ function toPriorityLabel(priority: ImprovementAction['priority']): string {
   }
 
   return labels[priority]
+}
+
+function toActionStatusLabel(priority: ImprovementAction['priority']): string {
+  if (priority === 'high') {
+    return '今日の候補'
+  }
+
+  if (priority === 'medium') {
+    return '続ける候補'
+  }
+
+  return '余裕があれば'
 }
 
 function toRecommendedUseDescription(use: SourceRecommendedUse): string {
