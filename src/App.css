@@ -2412,6 +2412,173 @@
   color: var(--color-primary-deep);
 }
 
+/* Readability and accessibility tuning. Keep the soft tone, but make states easier to read. */
+.app-shell {
+  --color-muted: #625d78;
+  --color-soft-muted: #817b96;
+  --color-line: rgba(83, 78, 120, 0.24);
+  --shadow-soft: 0 18px 45px rgba(78, 69, 120, 0.14);
+  --shadow-card: 0 10px 30px rgba(80, 73, 120, 0.13);
+}
+
+.app-header,
+.screen-tabs,
+.page-header,
+.section-intro,
+.data-view-toggle,
+.today-hero,
+.morning-action,
+.today-actions-panel,
+.drive-sync-mini,
+.timeline-day-card,
+.fragmentation-day-card,
+.panel,
+.action-task-card,
+.setting-field,
+.empty-state,
+.source-setting-card,
+.source-quality-item,
+.hae-import-panel .panel {
+  border-color: rgba(83, 78, 120, 0.16);
+}
+
+.screen-tabs button,
+.secondary-button,
+.diagnosis-view-tabs button,
+.data-view-toggle button,
+.timeline-view-toggle button,
+.pace-options button {
+  cursor: pointer;
+  border-color: rgba(95, 90, 162, 0.32);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(248, 245, 255, 0.78));
+  box-shadow:
+    0 7px 18px rgba(80, 73, 120, 0.11),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.54);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.screen-tabs button:hover,
+.secondary-button:hover,
+.diagnosis-view-tabs button:hover,
+.data-view-toggle button:hover,
+.timeline-view-toggle button:hover,
+.pace-options button:hover {
+  border-color: rgba(95, 90, 162, 0.44);
+  transform: translateY(-1px);
+}
+
+.screen-tabs button:focus-visible,
+.secondary-button:focus-visible,
+.diagnosis-view-tabs button:focus-visible,
+.data-view-toggle button:focus-visible,
+.timeline-view-toggle button:focus-visible,
+.pace-options button:focus-visible,
+.source-setting-controls select:focus-visible,
+.source-setting-controls input:focus-visible,
+.setting-field input:focus-visible,
+.file-drop input:focus-visible {
+  outline: 3px solid rgba(95, 90, 162, 0.28);
+  outline-offset: 2px;
+}
+
+.status-badge,
+.tag,
+.priority,
+.empty-state-action {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.44);
+  cursor: default;
+}
+
+.status-badge {
+  min-height: 32px;
+  padding-inline: 12px;
+}
+
+.tag,
+.priority {
+  min-height: 30px;
+}
+
+.detail-disclosure summary,
+.drive-sync-details summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-pill);
+  padding: 0 10px;
+  background: rgba(233, 227, 255, 0.4);
+  color: var(--color-primary-deep);
+}
+
+.detail-disclosure summary::after,
+.drive-sync-details summary::after {
+  margin-left: auto;
+  color: var(--color-primary);
+  content: '開く';
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.detail-disclosure[open] summary::after,
+.drive-sync-details[open] summary::after {
+  content: '閉じる';
+}
+
+.muted,
+.settings-copy,
+.file-status,
+.timeline-body p,
+.action-task-card small,
+.source-notes li,
+.plain-list,
+.quality-list li {
+  color: var(--color-muted);
+  font-size: max(14px, 0.875rem);
+}
+
+.status-row strong,
+.block-row strong,
+.metric strong,
+.metric-pill strong,
+.mini-fact strong,
+.score-gauge strong,
+.today-total strong {
+  color: var(--color-primary-deep);
+}
+
+.timeline-track {
+  border-color: rgba(83, 78, 120, 0.22);
+}
+
+.timeline-empty {
+  color: var(--color-primary-deep);
+}
+
+.timeline-block-labels span,
+.timeline-scale,
+.timeline-legend span {
+  color: var(--color-muted);
+}
+
+.source-setting-controls select,
+.source-setting-controls input,
+.setting-field input,
+.file-drop input {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.import-error,
+.warning-note,
+.quality-list li.warning,
+.quality-list li.error {
+  color: #75443f;
+}
+
+* {
+  min-width: 0;
+}
+
 @media (max-width: 760px) {
   .app-header {
     display: grid;
