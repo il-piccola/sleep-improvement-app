@@ -63,9 +63,9 @@ export function HealthAutoExportImportPanel({ onImported }: HealthAutoExportImpo
   return (
     <section className="hae-import-panel">
       <div className="panel">
-        <h2>Health Auto Export JSONを読み込む</h2>
+        <h2>Health Auto Export JSONを手動確認する</h2>
         <p className="settings-copy">
-          任意のJSONファイルを選択してください。アプリ内で監査して、使える睡眠データだけを正規化します。JSON原文は保存しません。
+          通常はGoogle Drive同期で自動取り込みします。ここでは、任意のJSONファイルを選び、アプリ内で監査して使える睡眠データだけを正規化します。JSON原文は保存しません。
         </p>
         <label className="file-drop">
           <span>JSONファイルを選択</span>

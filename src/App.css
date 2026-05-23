@@ -395,6 +395,33 @@
   gap: 10px;
 }
 
+.management-status-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid #c8dcd3;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.86), var(--color-good));
+}
+
+.management-status-card p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 16px;
+}
+
+.management-status-card strong {
+  margin: 0 4px;
+  color: var(--color-ink);
+}
+
+.management-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .today-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1507,6 +1534,10 @@
   font-size: 16px;
 }
 
+.single-setting-grid {
+  grid-template-columns: 1fr;
+}
+
 .settings-actions {
   display: grid;
   gap: 12px;
@@ -1681,7 +1712,7 @@
 
 .source-setting-controls {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(96px, 120px) auto auto;
+  grid-template-columns: minmax(160px, 1fr) minmax(96px, 120px) auto;
   gap: 10px;
   align-items: end;
 }
@@ -1940,6 +1971,7 @@
   .trend-grid,
   .data-view-toggle,
   .timeline-day-metrics,
+  .management-metric-grid,
   .empty-dashboard-grid,
   .drive-sync-mini-grid,
   .next-step-grid,

@@ -732,9 +732,21 @@ function DataDiagnosis({
     summary.classifiedBlocks.filter((block) => block.timeConfidence === 'actual'),
   ).length
   const notes = summaries.flatMap((summary) => summary.notes)
+  const driveSyncLabel =
+    driveSyncStatus?.lastStatus === 'normal'
+      ? '正常に同期されています'
+      : driveSyncStatus?.lastStatus === 'needs_attention'
+        ? '確認が必要なファイルがあります'
+        : '同期状態を確認中です'
+  const driveSyncTone = driveSyncStatus?.lastStatus === 'needs_attention' ? 'notice' : 'good'
 
   return (
     <section className="diagnosis-screen">
+      <PageHeader
+        eyebrow="データ診断"
+        title="同期とデータの状態を確認する"
+        description="Google Drive同期、取り込み状況、睡眠データの見やすさを確認します。細かい処理ログは詳細表示にまとめています。"
+      />
       <div className="diagnosis-view-tabs" aria-label="データ診断の表示切り替え">
         <button
           className={diagnosisView === 'normal' ? 'active' : ''}
@@ -754,20 +766,22 @@ function DataDiagnosis({
 
       {diagnosisView === 'normal' && (
         <div className="screen-grid">
-          <Panel title="データ診断">
-            <div className="diagnosis-list">
-              <div className={`quality-banner ${report.level}`}>
-                <span>データ品質</span>
-                <strong>{report.label}</strong>
-              </div>
-              <StatusRow label="読み込み状態" value={fileStatus} />
-              <StatusRow label="ファイル名" value={inputFileName ?? '匿名サンプル'} />
-              <StatusRow label="データ種別" value={sourceKind ?? '不明'} />
-              <StatusRow label="睡眠レコード" value={`${recordCount}件`} />
-              <StatusRow label="睡眠ブロック" value={`${blockCount}件`} />
-              <StatusRow label="時刻つきブロック" value={`${actualTimeBlocks}件`} />
-              <StatusRow label="日付範囲" value={report.dateRangeLabel} />
-              <StatusRow label="最新データ日" value={report.latestRecordDateLabel} />
+          <Panel title="現在の状態">
+            <div className="management-status-card">
+              <StatusBadge tone={driveSyncTone}>{driveSyncLabel}</StatusBadge>
+              <p>
+                最終同期は
+                <strong>{formatDateTime(driveSyncStatus?.lastSyncAt ?? undefined)}</strong>
+                です。確認が必要なファイルは
+                <strong>{driveSyncStatus?.lastFailedFiles ?? 0}件</strong>
+                です。
+              </p>
+            </div>
+            <div className="management-metric-grid">
+              <MetricPill label="データ品質" value={report.label} />
+              <MetricPill label="最新データ日" value={report.latestRecordDateLabel} />
+              <MetricPill label="日付範囲" value={report.dateRangeLabel} />
+              <MetricPill label="睡眠ブロック" value={`${blockCount}件`} />
             </div>
           </Panel>
           <Panel title="データ品質の注意点">
@@ -781,20 +795,28 @@ function DataDiagnosis({
             </ul>
           </Panel>
           <DriveSyncStatusCard driveSyncStatus={driveSyncStatus} />
-          <Panel title="判定メモ">
-            <ul className="plain-list">
-              {warnings.map((warning) => (
-                <li className="warning-note" key={warning}>
-                  {warning}
-                </li>
-              ))}
-              <li>18:00から翌18:00までを1つの睡眠日として扱います。</li>
-              <li>1日に複数回の睡眠がある場合もすべて表示します。</li>
-              <li>健康データはこの画面内で処理し、外部送信しません。</li>
-              {notes.slice(0, 6).map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
+          <Panel title="この画面の見方">
+            <p className="muted">
+              睡眠日は18:00から翌18:00までで見ています。複数回の睡眠も消さずに扱い、注意点がある時だけここに表示します。
+            </p>
+            <DetailDisclosure title="判定メモと読み込み情報">
+              <ul className="plain-list">
+                {warnings.map((warning) => (
+                  <li className="warning-note" key={warning}>
+                    {warning}
+                  </li>
+                ))}
+                <li>読み込み状態: {fileStatus}</li>
+                <li>ファイル名: {inputFileName ?? '匿名サンプル'}</li>
+                <li>データ種別: {sourceKind ?? '不明'}</li>
+                <li>睡眠レコード: {recordCount}件</li>
+                <li>時刻つきブロック: {actualTimeBlocks}件</li>
+                <li>健康データはこの画面内で処理し、外部送信しません。</li>
+                {notes.slice(0, 6).map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </DetailDisclosure>
           </Panel>
         </div>
       )}
@@ -1715,14 +1737,19 @@ function Settings({
 
   return (
     <section className="settings-screen">
+      <PageHeader
+        eyebrow="設定"
+        title="睡眠の見方と改善ペースを調整する"
+        description="分析の基準をこの端末に保存します。変更すると、今日の睡眠・タイムライン・改善アクションを同じ条件で再計算します。"
+      />
       <FirebaseUserPanel
         authAvailable={firebaseAuthAvailable}
         user={firebaseUser}
       />
 
-      <Panel title="変更できる項目">
+      <Panel title="睡眠日の見方">
         <p className="settings-copy">
-          ここで変更した値はこの端末のブラウザに保存されます。変更すると、今日の睡眠・タイムライン・改善アクションを同じ設定で再計算します。
+          どの時間帯を1つの睡眠日としてまとめるかを決めます。昼夜逆転や分割睡眠を見るための土台です。
         </p>
         <div className="settings-grid">
           <NumberSetting
@@ -1734,6 +1761,25 @@ function Settings({
             value={config.sleepDayBoundaryHour}
             onChange={(value) => updateNumber('sleepDayBoundaryHour', value, 0, 23)}
           />
+          <TimeSetting
+            description="朝に起きたい時刻です。改善アクションの目安に使います。"
+            label="目標起床時刻"
+            value={config.targetWakeTime}
+            onChange={(value) =>
+              onChange({
+                ...config,
+                targetWakeTime: value,
+              })
+            }
+          />
+        </div>
+      </Panel>
+
+      <Panel title="分類ルール">
+        <p className="settings-copy">
+          睡眠ブロック、仮眠、夕方睡眠の見分け方を調整します。迷う場合は初期値のままで十分です。
+        </p>
+        <div className="settings-grid">
           <NumberSetting
             description="睡眠中の短い途切れを同じ睡眠としてまとめる幅です。初期値は30分です。"
             label="睡眠ブロックを結合するすき間"
@@ -1761,17 +1807,14 @@ function Settings({
             value={config.eveningSleepStartHour}
             onChange={(value) => updateNumber('eveningSleepStartHour', value, 0, 23)}
           />
-          <TimeSetting
-            description="朝に起きたい時刻です。改善アクションの目安に使います。"
-            label="目標起床時刻"
-            value={config.targetWakeTime}
-            onChange={(value) =>
-              onChange({
-                ...config,
-                targetWakeTime: value,
-              })
-            }
-          />
+        </div>
+      </Panel>
+
+      <Panel title="改善ペース">
+        <p className="settings-copy">
+          今日の改善アクションをどのくらい控えめに出すかを選びます。医療的な指示ではなく、生活の目安です。
+        </p>
+        <div className="settings-grid single-setting-grid">
           <PaceSetting
             value={config.improvementPace}
             onChange={(value) =>
@@ -1905,8 +1948,6 @@ function SourceSettings({
   onChange: (preferences: SleepSourcePreferenceMap) => void
   onReset: () => void
 }) {
-  const [expandedSourceKey, setExpandedSourceKey] = useState<string | null>(null)
-
   const updateUse = (sourceKey: string, use: SourceUseSetting) => {
     onChange(upsertSourcePreference(preferences, sourceKey, { use }))
   }
@@ -1921,13 +1962,17 @@ function SourceSettings({
 
   return (
     <section className="settings-screen">
+      <PageHeader
+        eyebrow="睡眠ソース"
+        title="使うデータ元を確認する"
+        description="自動判定を目安に、どの睡眠データを優先するか調整できます。通常表示では使い方と注意点だけを見せます。"
+      />
       <Panel title="睡眠ソース設定">
         <p className="settings-copy">
           自動判定を目安にしつつ、どのソースを優先するか調整できます。変更すると統合タイムライン、分割睡眠、昼夜逆転の目安を再計算します。
         </p>
         <div className="source-settings-list">
           {details.map((detail) => {
-            const isExpanded = expandedSourceKey === detail.sourceKey
             return (
               <article className="source-setting-card" key={detail.sourceKey}>
                 <div className="source-setting-head">
@@ -1950,10 +1995,10 @@ function SourceSettings({
                         updateUse(detail.sourceKey, event.target.value as SourceUseSetting)
                       }
                     >
-                      <option value="primary">主データ</option>
-                      <option value="secondary">補助</option>
-                      <option value="fallback">補助データ</option>
-                      <option value="ignored">除外</option>
+                      <option value="primary">優先して使う</option>
+                      <option value="secondary">補助として使う</option>
+                      <option value="fallback">他にない時だけ使う</option>
+                      <option value="ignored">使わない</option>
                     </select>
                   </label>
                   <label>
@@ -1967,15 +2012,6 @@ function SourceSettings({
                       value={detail.priority}
                     />
                   </label>
-                  <button
-                    className="secondary-button"
-                    onClick={() =>
-                      setExpandedSourceKey(isExpanded ? null : detail.sourceKey)
-                    }
-                    type="button"
-                  >
-                    {isExpanded ? '詳細を閉じる' : '詳細を見る'}
-                  </button>
                   <button
                     className="secondary-button"
                     onClick={() => resetOne(detail.sourceKey)}
@@ -1992,7 +2028,7 @@ function SourceSettings({
                   {detail.isUnknownSource && <span className="tag">不明なデータ元</span>}
                 </div>
 
-                {isExpanded && (
+                <DetailDisclosure title="このソースの詳細">
                   <div className="source-detail-panel">
                     <div className="overlap-summary-grid">
                       <StatusRow label="データ元キー" value={toSourceKeyDisplay(detail.sourceKey)} />
@@ -2028,7 +2064,7 @@ function SourceSettings({
                     )}
                     <SourceNotes title="統合理由ログ" items={detail.logs} />
                   </div>
-                )}
+                </DetailDisclosure>
               </article>
             )
           })}
@@ -2040,8 +2076,8 @@ function SourceSettings({
           すべて初期推奨に戻す
         </button>
         <ul className="plain-list import-format-list">
-          <li>primaryが複数ある場合は優先順位の小さいソースを先に見ます。</li>
-          <li>ignoredにしたソースは統合タイムラインと主要指標から除外します。</li>
+          <li>「優先して使う」が複数ある場合は、優先順位の小さいソースを先に見ます。</li>
+          <li>「使わない」にしたソースは統合タイムラインと主要指標から除外します。</li>
           <li>補助データは同じ時間帯に実睡眠データがない場合だけ使います。</li>
         </ul>
       </Panel>
@@ -2062,10 +2098,22 @@ function FileImport({
 }) {
   return (
     <section className="import-screen">
+      <PageHeader
+        eyebrow="読み込み"
+        title="手動確認・緊急取り込み"
+        description="通常運用はGoogle Drive同期で自動取り込みします。この画面は、ファイルの中身を確認したい時や緊急で手動取り込みしたい時に使います。"
+      />
+      <SectionIntro
+        title="通常はGoogle Drive同期で十分です"
+        description="Health Auto ExportがGoogle Driveへ保存したJSONは、Cloud Runが定期的に取得します。ここでファイルを選ぶ必要があるのは、手元のファイルを確認したい時だけです。"
+      />
       <HealthAutoExportImportPanel onImported={onHealthAutoExportImported} />
 
       <div className="screen-grid">
-      <Panel title="ファイル読み込み">
+      <Panel title="normalized JSON / AppleヘルスXMLを確認する">
+        <p className="settings-copy">
+          監査済みのnormalized JSONやAppleヘルスXMLを、ブラウザ内だけで読み込みます。通常運用では使わない補助ルートです。
+        </p>
         <label className="file-drop">
           <span>normalized JSON / AppleヘルスXML</span>
           <input
@@ -2083,11 +2131,13 @@ function FileImport({
         <p className="muted">
           ファイルは端末のブラウザ内で解析します。健康データを外部送信する処理はありません。
         </p>
-        <ul className="plain-list import-format-list">
-          <li>推奨: normalized-sleep-records.json</li>
-          <li>対応: Health Auto Export JSON</li>
-          <li>対応: AppleヘルスXML</li>
-        </ul>
+        <DetailDisclosure title="対応ファイル形式">
+          <ul className="plain-list import-format-list">
+            <li>推奨: Google Drive同期されたHealth Auto Export JSON</li>
+            <li>手動確認: normalized-sleep-records.json</li>
+            <li>手動確認: AppleヘルスXML</li>
+          </ul>
+        </DetailDisclosure>
       </Panel>
       </div>
     </section>
@@ -2513,9 +2563,10 @@ function describeSourceSetting(
 }
 
 function toSourceStatusLabel(use: SourceUseSetting, hasWarnings: boolean): string {
-  if (use === 'ignored') return '除外'
+  if (use === 'ignored') return '使わない'
   if (hasWarnings) return '注意あり'
-  if (use === 'fallback') return '補助'
+  if (use === 'fallback') return '他にない時'
+  if (use === 'secondary') return '補助'
   return '使用中'
 }
 
