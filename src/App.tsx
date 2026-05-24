@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import './App.css'
 import sampleSleepData from './sample/anonymized-sleep-records.json'
@@ -17,16 +17,14 @@ import { selectTodaySleepSummary } from './lib/analysis/selectTodaySleepSummary'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
 import { getFirebaseAuth } from './lib/firebaseClient'
 import { resolveSleepSource } from './lib/source/resolveSleepSource'
-import heroSleepMorning from './assets/decorations/hero_sleep_morning.svg'
-import emptyTodayWaiting from './assets/decorations/empty_today_waiting.svg'
-import emptyTimelineWaiting from './assets/decorations/empty_timeline_waiting.svg'
-import emptySplitSleep from './assets/decorations/empty_split_sleep.svg'
-import actionSunrise from './assets/decorations/action_sunrise.svg'
-import actionWarmDrink from './assets/decorations/action_warm_drink.svg'
-import actionNote from './assets/decorations/action_note.svg'
-import actionBed from './assets/decorations/action_bed.svg'
-import actionCurtain from './assets/decorations/action_curtain.svg'
-import actionWalk from './assets/decorations/action_walk.svg'
+import sleepActionEvening from './assets/decorations/generated/sleep-action-evening-transparent.png'
+import sleepActionMorning from './assets/decorations/generated/sleep-action-morning-transparent.png'
+import sleepCompassLogo from './assets/branding/sleep-compass-logo-mark.png'
+import sleepEmptyWaiting from './assets/decorations/generated/sleep-empty-waiting-transparent.png'
+import sleepHeroJournal from './assets/decorations/generated/sleep-hero-journal-transparent.png'
+import sleepPastelDreamscapeBg from './assets/decorations/generated/sleep-pastel-dreamscape-bg.png'
+import sleepSplitClouds from './assets/decorations/generated/sleep-split-clouds-transparent.png'
+import sleepTimelineClock from './assets/decorations/generated/sleep-timeline-clock-transparent.png'
 import {
   loadStoredSourcePreferences,
   removeSourcePreference,
@@ -180,6 +178,8 @@ type CloudTimelinePayload = {
       end: string
       durationMinutes: number
       type: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
+      sourceKeys?: string[]
+      sourceLabels?: string[]
     }>
   }>
 }
@@ -398,14 +398,25 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main
+      className="app-shell"
+      style={{ '--decor-dreamscape': `url(${sleepPastelDreamscapeBg})` } as CSSProperties}
+    >
       <header className="app-header">
-        <div>
-          <p className="eyebrow">睡眠改善ログ</p>
-          <h1>Sleep Compass</h1>
-          <p className="header-copy">
-            医学的診断ではなく、睡眠ブロックの傾向と改善の目安を表示します。
-          </p>
+        <div className="brand-lockup">
+          <img
+            alt=""
+            aria-hidden="true"
+            className="brand-logo-mark"
+            src={sleepCompassLogo}
+          />
+          <div className="brand-wordmark">
+            <p className="eyebrow">睡眠改善ログ</p>
+            <h1>Sleep Compass</h1>
+            <p className="header-copy">
+              医学的診断ではなく、睡眠ブロックの傾向と改善の目安を表示します。
+            </p>
+          </div>
         </div>
       </header>
 
@@ -660,27 +671,32 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
 
 function cloudTimelineToSleepRecords(payload: CloudTimelinePayload): SleepRecord[] {
   return (payload.days ?? []).flatMap((day) =>
-    day.blocks.map((block, index): SleepRecord => ({
-      id: `cloud-${day.date}-${index}-${block.start}`,
-      value: 'asleep',
-      sourceFormat: 'cloud_run_api',
-      sourceFile: 'cloud_run_unified_timeline',
-      sourceKey: 'cloud_run_unified_timeline',
-      sourceApp: 'Cloud Run',
-      sourceName: 'Cloud Run',
-      sourceKind: 'present',
-      sourceLabel: 'Cloud Run',
-      originalValue: block.type,
-      start: block.start,
-      end: block.end,
-      startDate: block.start,
-      endDate: block.end,
-      stage: 'asleep',
-      durationMinutes: block.durationMinutes,
-      hasStartDate: true,
-      hasEndDate: true,
-      hasSource: true,
-    })),
+    day.blocks.map((block, index): SleepRecord => {
+      const sourceKey = block.sourceKeys?.[0] ?? 'unknown_source:cloud_run_api'
+      const sourceLabel = block.sourceLabels?.[0] ?? toSourceKeyDisplay(sourceKey)
+
+      return {
+        id: `cloud-${day.date}-${index}-${block.start}`,
+        value: 'asleep',
+        sourceFormat: 'cloud_run_api',
+        sourceFile: 'cloud_run_unified_timeline',
+        sourceKey,
+        sourceApp: sourceLabel,
+        sourceName: sourceLabel,
+        sourceKind: 'present',
+        sourceLabel,
+        originalValue: block.type,
+        start: block.start,
+        end: block.end,
+        startDate: block.start,
+        endDate: block.end,
+        stage: 'asleep',
+        durationMinutes: block.durationMinutes,
+        hasStartDate: true,
+        hasEndDate: true,
+        hasSource: true,
+      }
+    }),
   )
 }
 
@@ -1020,7 +1036,7 @@ function TodaySleep({
             alt=""
             aria-hidden="true"
             className="hero-decoration"
-            src={heroSleepMorning}
+            src={sleepHeroJournal}
           />
           <div className="today-hero-main">
             <p className="eyebrow">今日の睡眠</p>
@@ -1035,14 +1051,14 @@ function TodaySleep({
           <div className="today-total">
             <span>表示状態</span>
             <strong>データ待ち</strong>
+            <img
+              alt=""
+              aria-hidden="true"
+              className="today-status-illustration"
+              src={sleepEmptyWaiting}
+            />
           </div>
         </div>
-        <img
-          alt=""
-          aria-hidden="true"
-          className="empty-illustration today-empty-illustration"
-          src={emptyTodayWaiting}
-        />
 
         <TimelinePlaceholder />
 
@@ -1089,6 +1105,12 @@ function TodaySleep({
   return (
     <section className="today-screen">
       <div className="today-hero">
+        <img
+          alt=""
+          aria-hidden="true"
+          className="hero-decoration"
+          src={sleepHeroJournal}
+        />
         <div className="today-hero-main">
           <p className="eyebrow">今日の睡眠</p>
           <h2>{summary.sleepDayKey}</h2>
@@ -1170,6 +1192,12 @@ function TodaySleep({
         <div className="today-action-list">
           {visibleActions.map((action) => (
             <article className="today-action-item" key={action.id}>
+              <img
+                alt=""
+                aria-hidden="true"
+                className="today-action-illustration"
+                src={getActionIllustration(action)}
+              />
               <span className={`priority ${action.priority}`}>
                 {toPriorityLabel(action.priority)}
               </span>
@@ -1215,7 +1243,7 @@ function TimelinePlaceholder() {
         className="timeline-track placeholder"
         role="img"
       >
-        <img alt="" aria-hidden="true" className="timeline-empty-art" src={emptyTimelineWaiting} />
+        <img alt="" aria-hidden="true" className="timeline-empty-art" src={sleepTimelineClock} />
         <span className="timeline-empty">データが届くと、ここに睡眠ブロックが表示されます</span>
       </div>
       <p className="timeline-placeholder-copy">
@@ -1561,7 +1589,7 @@ function SleepTimeline({
           title="この期間の睡眠データはまだありません"
           description="Google Drive同期またはファイル読み込みが完了すると、日ごとの24時間バーがここに並びます。データ診断タブで同期状態を確認できます。"
           actionLabel="データ診断で同期状態を確認"
-          illustrationSrc={emptyTimelineWaiting}
+          illustrationSrc={sleepTimelineClock}
         />
       </section>
     )
@@ -1657,7 +1685,7 @@ function FragmentationDetail({
           title="分割睡眠データはまだありません"
           description="データが届くと、睡眠が何回に分かれたか、主睡眠候補と短い睡眠の関係をここに表示します。"
           actionLabel="データ診断で同期状態を確認"
-          illustrationSrc={emptySplitSleep}
+          illustrationSrc={sleepSplitClouds}
         />
       )}
       {summaries.map((summary) => (
@@ -1791,7 +1819,7 @@ function TodayActions({ actions }: { actions: ImprovementAction[] }) {
         <EmptyState
           title="睡眠データが少ないため、基本アクションを表示しています"
           description="データが増えると、分割睡眠や昼夜リズムの傾向に合わせた行動がここに並びます。"
-          illustrationSrc={emptyTodayWaiting}
+          illustrationSrc={sleepEmptyWaiting}
         />
       )}
       <ActionGroup
@@ -2106,7 +2134,7 @@ function SourceSettings({
   }
 
   const updatePriority = (sourceKey: string, priority: number) => {
-    onChange(upsertSourcePreference(preferences, sourceKey, { priority }))
+    onChange(upsertSourcePreference(preferences, sourceKey, { priority: clampSourcePriority(priority, details.length) }))
   }
 
   const resetOne = (sourceKey: string) => {
@@ -2157,6 +2185,8 @@ function SourceSettings({
                   <label>
                     <span>優先順位</span>
                     <input
+                      disabled={details.length <= 1}
+                      max={Math.max(1, details.length)}
                       min="1"
                       onChange={(event) =>
                         updatePriority(detail.sourceKey, Number(event.target.value))
@@ -2306,11 +2336,23 @@ function PageHeader({
   eyebrow: string
   title: string
 }) {
+  const illustration = getPageHeaderIllustration(title, eyebrow)
+
   return (
     <header className="page-header">
-      <p className="eyebrow">{eyebrow}</p>
-      <h2>{title}</h2>
-      <p>{description}</p>
+      <div className="page-header-copy">
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      {illustration && (
+        <img
+          alt=""
+          aria-hidden="true"
+          className="page-header-decoration"
+          src={illustration}
+        />
+      )}
     </header>
   )
 }
@@ -2618,6 +2660,16 @@ function PaceSetting({
   )
 }
 
+function clampSourcePriority(priority: number, sourceCount: number): number {
+  const maxPriority = Math.max(1, sourceCount)
+
+  if (!Number.isFinite(priority)) {
+    return 1
+  }
+
+  return Math.min(maxPriority, Math.max(1, Math.round(priority)))
+}
+
 function buildSourceDetails(
   records: SleepRecord[],
   sourceQuality: SourceQualityReport[],
@@ -2652,6 +2704,8 @@ function buildSourceDetails(
     const inBedOnly =
       sourceRecords.length > 0 &&
       sourceRecords.every((record) => normalizeStageLabel(record.stage ?? record.value) === 'in_bed')
+    const usesDefaultHealthExportLabel = isDefaultHealthExportSource(quality, sourceRecords)
+    const displayName = usesDefaultHealthExportLabel ? 'Withings' : quality.displayName
     const sourceText = [
       quality.sourceKey,
       first?.sourceApp,
@@ -2665,14 +2719,14 @@ function buildSourceDetails(
 
     return {
       sourceKey: quality.sourceKey,
-      displayName: quality.displayName,
+      displayName,
       effectiveUse,
       priority,
       statusLabel: toSourceStatusLabel(effectiveUse, quality.warnings.length > 0),
-      description: describeSourceSetting(quality, effectiveUse),
+      description: describeSourceSetting(quality, effectiveUse, usesDefaultHealthExportLabel),
       quality,
-      sourceApp: first?.sourceApp,
-      sourceName: first?.sourceName,
+      sourceApp: first?.sourceApp ?? (usesDefaultHealthExportLabel ? 'Withings' : undefined),
+      sourceName: first?.sourceName ?? (usesDefaultHealthExportLabel ? 'Withings' : undefined),
       sourceBundleId: first?.sourceBundleId,
       deviceName: first?.deviceName,
       recordCount: sourceRecords.length,
@@ -2685,7 +2739,7 @@ function buildSourceDetails(
       excludedCount,
       inBedOnly,
       isManualLike: sourceText.includes('manual') || sourceText.includes('手入力'),
-      isUnknownSource: quality.sourceKey.startsWith('unknown_source'),
+      isUnknownSource: quality.sourceKey.startsWith('unknown_source') && !usesDefaultHealthExportLabel,
       logs: unifiedTimeline.logs
         .filter((log) => log.sourceKeys.includes(quality.sourceKey))
         .map((log) => log.message),
@@ -2696,9 +2750,14 @@ function buildSourceDetails(
 function describeSourceSetting(
   quality: SourceQualityReport,
   effectiveUse: SourceUseSetting,
+  usesDefaultHealthExportLabel = false,
 ): string {
   if (effectiveUse === 'ignored') {
     return 'このソースはユーザー設定で除外されています。主要指標には使いません。'
+  }
+
+  if (usesDefaultHealthExportLabel) {
+    return 'Health Auto Export由来の睡眠データです。元データのソース名が省略されているため、既定のデータ元として表示しています。'
   }
 
   if (quality.sourceKey.startsWith('unknown_source')) {
@@ -2718,6 +2777,18 @@ function describeSourceSetting(
   }
 
   return 'このソースは睡眠分析の候補として利用できます。'
+}
+
+function isDefaultHealthExportSource(
+  quality: SourceQualityReport,
+  sourceRecords: SleepRecord[],
+): boolean {
+  return (
+    quality.sourceKey.startsWith('unknown_source') &&
+    (quality.displayName === '不明なソース' ||
+      quality.sourceKey.includes('health_auto_export_json') ||
+      sourceRecords.some((record) => record.sourceFormat === 'health_auto_export_json'))
+  )
 }
 
 function toSourceStatusLabel(use: SourceUseSetting, hasWarnings: boolean): string {
@@ -3135,31 +3206,47 @@ function toActionStatusLabel(priority: ImprovementAction['priority']): string {
 function getActionIllustration(action: ImprovementAction): string {
   const text = `${action.id} ${action.title} ${action.description}`
 
-  if (text.includes('光') || text.includes('朝')) {
-    return actionSunrise
+  if (
+    text.includes('光') ||
+    text.includes('朝') ||
+    text.includes('カーテン') ||
+    text.includes('照明') ||
+    text.includes('歩') ||
+    text.includes('散歩') ||
+    text.includes('外')
+  ) {
+    return sleepActionMorning
   }
 
-  if (text.includes('水分') || text.includes('飲') || text.includes('落ち着')) {
-    return actionWarmDrink
+  if (
+    text.includes('水分') ||
+    text.includes('飲') ||
+    text.includes('落ち着') ||
+    text.includes('記録') ||
+    text.includes('準備') ||
+    text.includes('メモ') ||
+    text.includes('寝') ||
+    text.includes('眠') ||
+    text.includes('ベッド')
+  ) {
+    return sleepActionEvening
   }
 
-  if (text.includes('記録') || text.includes('準備') || text.includes('メモ')) {
-    return actionNote
-  }
+  return sleepActionEvening
+}
 
-  if (text.includes('寝') || text.includes('眠') || text.includes('ベッド')) {
-    return actionBed
-  }
+function getPageHeaderIllustration(title: string, eyebrow: string): string {
+  const text = `${title} ${eyebrow}`
 
-  if (text.includes('カーテン') || text.includes('照明') || text.includes('部屋を明る')) {
-    return actionCurtain
-  }
+  if (text.includes('タイムライン')) return sleepTimelineClock
+  if (text.includes('分割睡眠')) return sleepSplitClouds
+  if (text.includes('改善アクション')) return sleepActionMorning
+  if (text.includes('データ診断')) return sleepEmptyWaiting
+  if (text.includes('読み込み')) return sleepEmptyWaiting
+  if (text.includes('設定')) return sleepActionEvening
+  if (text.includes('睡眠ソース')) return sleepActionEvening
 
-  if (text.includes('歩') || text.includes('散歩') || text.includes('外')) {
-    return actionWalk
-  }
-
-  return actionNote
+  return sleepHeroJournal
 }
 
 function toRecommendedUseDescription(use: SourceRecommendedUse): string {

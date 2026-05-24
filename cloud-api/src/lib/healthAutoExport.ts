@@ -127,6 +127,7 @@ function normalizeSleepRow({
     deviceName: getString(row.deviceName),
     sourceBundleId: getString(row.sourceBundleId),
   })
+  const sourceLabel = sourceName ?? getDefaultHealthExportSourceLabel()
   const durationMinutes = Math.max(
     0,
     Math.round((endDate.getTime() - startDate.getTime()) / 60_000),
@@ -149,7 +150,7 @@ function normalizeSleepRow({
     stage,
     originalValue,
     sourceKey,
-    ...(sourceName ? { sourceName } : {}),
+    ...(sourceLabel ? { sourceName: sourceLabel } : {}),
     sourceFormat: 'health_auto_export_json',
     sourceFile,
   }
@@ -297,7 +298,15 @@ function resolveSourceKey(input: {
   if (joined.includes('health')) return 'apple_health'
 
   const label = values[0]
-  return label ? toSourceKey(label) : 'unknown_source:health_auto_export_json'
+  return label ? toSourceKey(label) : getDefaultHealthExportSourceKey()
+}
+
+function getDefaultHealthExportSourceKey(): string {
+  return process.env.HEALTH_EXPORT_DEFAULT_SOURCE_KEY?.trim() || 'unknown_source:health_auto_export_json'
+}
+
+function getDefaultHealthExportSourceLabel(): string | undefined {
+  return process.env.HEALTH_EXPORT_DEFAULT_SOURCE_LABEL?.trim() || undefined
 }
 
 function createRecordId(input: {

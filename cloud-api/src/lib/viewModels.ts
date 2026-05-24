@@ -12,6 +12,8 @@ type SleepBlockView = {
   end: string
   durationMinutes: number
   type: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
+  sourceKeys: string[]
+  sourceLabels: string[]
 }
 
 type SummaryView = {
@@ -309,6 +311,8 @@ function mergeSleepRecords(records: SleepRecordDocument[]): SleepBlockView[] {
         previous.durationMinutes = Math.round(
           (new Date(previous.end).getTime() - new Date(previous.start).getTime()) / 60_000,
         )
+        addUnique(previous.sourceKeys, getSourceKey(record))
+        addUnique(previous.sourceLabels, getSourceLabel(record))
         continue
       }
     }
@@ -318,6 +322,8 @@ function mergeSleepRecords(records: SleepRecordDocument[]): SleepBlockView[] {
       end: record.end,
       durationMinutes: record.durationMinutes,
       type: 'unknown',
+      sourceKeys: [getSourceKey(record)],
+      sourceLabels: [getSourceLabel(record)],
     })
   }
 
@@ -357,6 +363,52 @@ function getSleepDayKey(value: string): string {
 
 function isSleepStage(stage: SleepRecordDocument['stage']): boolean {
   return stage === 'asleep' || stage.startsWith('asleep_')
+}
+
+function getSourceKey(record: SleepRecordDocument): string {
+  if (isUnknownHealthAutoExportSource(record)) {
+    return process.env.HEALTH_EXPORT_DEFAULT_SOURCE_KEY?.trim() || record.sourceKey
+  }
+
+  return record.sourceKey
+}
+
+function getSourceLabel(record: SleepRecordDocument): string {
+  if (isUnknownHealthAutoExportSource(record)) {
+    return process.env.HEALTH_EXPORT_DEFAULT_SOURCE_LABEL?.trim() || 'Health Auto Export'
+  }
+
+  if (record.sourceName) {
+    return resolveKnownSourceLabel(record.sourceName) ?? record.sourceName
+  }
+
+  return resolveKnownSourceLabel(record.sourceKey) ?? record.sourceKey
+}
+
+function isUnknownHealthAutoExportSource(record: SleepRecordDocument): boolean {
+  return record.sourceKey.startsWith('unknown_source') && record.sourceFormat === 'health_auto_export_json'
+}
+
+function resolveKnownSourceLabel(value: string): string | null {
+  const text = value.toLowerCase()
+
+  if (text.includes('withings')) return 'Withings'
+  if (text.includes('apple_watch') || text.includes('apple watch') || /\bwatch\b/.test(text)) {
+    return 'Apple Watch'
+  }
+  if (text.includes('iphone') || text.includes('i phone')) return 'iPhone'
+  if (text.includes('manual') || text.includes('手入力')) return '手入力'
+  if (text.includes('apple_health') || text.includes('apple health') || text.includes('com.apple.health')) {
+    return 'Apple Health'
+  }
+
+  return null
+}
+
+function addUnique(items: string[], value: string): void {
+  if (!items.includes(value)) {
+    items.push(value)
+  }
 }
 
 function sumMinutes(blocks: SleepBlockView[]): number {

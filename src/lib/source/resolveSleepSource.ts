@@ -1,5 +1,6 @@
 export type SleepSourceInput = {
   sourceKey?: unknown
+  sourceLabel?: unknown
   sourceApp?: unknown
   sourceName?: unknown
   source?: unknown
@@ -22,15 +23,36 @@ export function resolveSleepSource(input: SleepSourceInput): ResolvedSleepSource
   const explicitKey = getString(input.sourceKey)
 
   if (explicitKey) {
+    const defaultHealthExportSource = resolveDefaultHealthExportSource(input)
+
+    if (defaultHealthExportSource) {
+      return defaultHealthExportSource
+    }
+
     const sourceKey =
       normalizeExplicitSourceKey(explicitKey) === UNKNOWN_SOURCE_KEY
         ? buildUnknownSourceKey(input)
         : normalizeExplicitSourceKey(explicitKey)
+    const values = [
+      explicitKey,
+      getString(input.sourceLabel),
+      getString(input.sourceApp),
+      getString(input.sourceName),
+      getString(input.source),
+      getString(input.deviceName),
+      getString(input.sourceBundleId),
+      getString(input.sourceKind),
+    ].filter((value): value is string => Boolean(value))
+    const known = resolveKnownSource(values)
+    const sourceLabel =
+      sourceKey.startsWith(UNKNOWN_SOURCE_KEY)
+        ? '不明なソース'
+        : known?.sourceLabel ?? getString(input.sourceLabel) ?? explicitKey
 
     return {
       sourceKey,
-      sourceLabel: sourceKey.startsWith(UNKNOWN_SOURCE_KEY) ? '不明なソース' : explicitKey,
-      sourceApp: sourceKey.startsWith(UNKNOWN_SOURCE_KEY) ? undefined : explicitKey,
+      sourceLabel,
+      sourceApp: sourceKey.startsWith(UNKNOWN_SOURCE_KEY) ? undefined : sourceLabel,
     }
   }
 
@@ -44,6 +66,12 @@ export function resolveSleepSource(input: SleepSourceInput): ResolvedSleepSource
   ].filter((value): value is string => Boolean(value))
 
   if (values.length === 0) {
+    const defaultHealthExportSource = resolveDefaultHealthExportSource(input)
+
+    if (defaultHealthExportSource) {
+      return defaultHealthExportSource
+    }
+
     return {
       sourceKey: buildUnknownSourceKey(input),
       sourceLabel: '不明なソース',
@@ -75,6 +103,26 @@ function buildUnknownSourceKey(input: SleepSourceInput): string {
   }
 
   return parts.join(':')
+}
+
+function resolveDefaultHealthExportSource(input: SleepSourceInput): ResolvedSleepSource | null {
+  const explicitKey = getString(input.sourceKey)
+  const sourceFormat = getString(input.sourceFormat)
+  const sourceFile = getString(input.sourceFile)
+
+  if (
+    sourceFormat !== 'health_auto_export_json' ||
+    sourceFile ||
+    (explicitKey && !normalizeExplicitSourceKey(explicitKey).startsWith(UNKNOWN_SOURCE_KEY))
+  ) {
+    return null
+  }
+
+  return {
+    sourceKey: 'withings',
+    sourceLabel: 'Withings',
+    sourceApp: 'Withings',
+  }
 }
 
 export function toSourceKey(value: string): string {
