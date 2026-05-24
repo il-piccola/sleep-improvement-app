@@ -2579,6 +2579,115 @@
   min-width: 0;
 }
 
+/* Decorative asset layer. Images are intentionally non-interactive and low contrast. */
+.app-shell {
+  background:
+    url('./assets/decorations/pattern_moon_cloud.svg') 96% 18px / 260px 260px repeat,
+    linear-gradient(120deg, rgba(255, 220, 232, 0.32) 0%, transparent 28%),
+    linear-gradient(235deg, rgba(220, 238, 255, 0.72) 0%, transparent 34%),
+    linear-gradient(145deg, var(--color-bg-start) 0%, var(--color-bg-mid) 48%, var(--color-bg-end) 100%);
+  background-blend-mode: soft-light, normal, normal, normal;
+}
+
+.settings-screen,
+.import-screen {
+  background-image: url('./assets/decorations/pattern_sleep_journal.svg');
+  background-position: right 18px top 18px;
+  background-repeat: repeat;
+  background-size: 220px 220px;
+  background-blend-mode: soft-light;
+}
+
+.today-hero {
+  overflow: hidden;
+  position: relative;
+}
+
+.hero-decoration {
+  position: absolute;
+  inset: auto -46px -8px auto;
+  width: min(58%, 520px);
+  max-height: 100%;
+  object-fit: contain;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.today-hero-main,
+.today-total {
+  position: relative;
+  z-index: 1;
+}
+
+.empty-illustration,
+.empty-state-illustration {
+  display: block;
+  width: min(190px, 42vw);
+  margin: -4px auto 2px;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.today-empty-illustration {
+  margin-top: -10px;
+  margin-bottom: -6px;
+}
+
+.redesigned-empty-state {
+  justify-items: start;
+}
+
+.empty-state-illustration {
+  justify-self: end;
+  margin: -6px 0 -18px;
+  width: min(180px, 36vw);
+}
+
+.timeline-track.placeholder {
+  min-height: 88px;
+}
+
+.timeline-empty-art {
+  position: absolute;
+  right: 12px;
+  bottom: -16px;
+  width: 104px;
+  opacity: 0.34;
+  pointer-events: none;
+}
+
+.timeline-track.placeholder .timeline-empty {
+  z-index: 1;
+  padding-inline: 18px 118px;
+  text-align: center;
+}
+
+.action-task-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.action-task-head,
+.action-task-card h2,
+.action-task-card p,
+.action-task-card small,
+.action-state-row {
+  grid-column: 1 / 2;
+}
+
+.action-card-illustration {
+  grid-column: 2 / 3;
+  grid-row: 1 / span 3;
+  width: 72px;
+  align-self: start;
+  opacity: 0.94;
+  pointer-events: none;
+}
+
+.action-state-row {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 760px) {
   .app-header {
     display: grid;
@@ -2698,6 +2807,37 @@
 
   .action-task-head {
     display: grid;
+  }
+
+  .hero-decoration {
+    width: 92%;
+    right: -90px;
+    bottom: -18px;
+    opacity: 0.28;
+  }
+
+  .empty-state-illustration {
+    justify-self: center;
+    margin: -4px auto 0;
+    width: min(150px, 48vw);
+  }
+
+  .timeline-empty-art {
+    right: 4px;
+    width: 78px;
+    opacity: 0.24;
+  }
+
+  .timeline-track.placeholder .timeline-empty {
+    padding-inline: 12px;
+  }
+
+  .action-task-card {
+    grid-template-columns: 1fr 62px;
+  }
+
+  .action-card-illustration {
+    width: 58px;
   }
 
   .today-hero h2 {

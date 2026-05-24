@@ -17,6 +17,16 @@ import { selectTodaySleepSummary } from './lib/analysis/selectTodaySleepSummary'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
 import { getFirebaseAuth } from './lib/firebaseClient'
 import { resolveSleepSource } from './lib/source/resolveSleepSource'
+import heroSleepMorning from './assets/decorations/hero_sleep_morning.svg'
+import emptyTodayWaiting from './assets/decorations/empty_today_waiting.svg'
+import emptyTimelineWaiting from './assets/decorations/empty_timeline_waiting.svg'
+import emptySplitSleep from './assets/decorations/empty_split_sleep.svg'
+import actionSunrise from './assets/decorations/action_sunrise.svg'
+import actionWarmDrink from './assets/decorations/action_warm_drink.svg'
+import actionNote from './assets/decorations/action_note.svg'
+import actionBed from './assets/decorations/action_bed.svg'
+import actionCurtain from './assets/decorations/action_curtain.svg'
+import actionWalk from './assets/decorations/action_walk.svg'
 import {
   loadStoredSourcePreferences,
   removeSourcePreference,
@@ -1006,6 +1016,12 @@ function TodaySleep({
     return (
       <section className="today-screen">
         <div className="today-hero empty">
+          <img
+            alt=""
+            aria-hidden="true"
+            className="hero-decoration"
+            src={heroSleepMorning}
+          />
           <div className="today-hero-main">
             <p className="eyebrow">今日の睡眠</p>
             <h2>今日の睡眠データはまだ届いていません</h2>
@@ -1021,6 +1037,12 @@ function TodaySleep({
             <strong>データ待ち</strong>
           </div>
         </div>
+        <img
+          alt=""
+          aria-hidden="true"
+          className="empty-illustration today-empty-illustration"
+          src={emptyTodayWaiting}
+        />
 
         <TimelinePlaceholder />
 
@@ -1193,6 +1215,7 @@ function TimelinePlaceholder() {
         className="timeline-track placeholder"
         role="img"
       >
+        <img alt="" aria-hidden="true" className="timeline-empty-art" src={emptyTimelineWaiting} />
         <span className="timeline-empty">データが届くと、ここに睡眠ブロックが表示されます</span>
       </div>
       <p className="timeline-placeholder-copy">
@@ -1538,6 +1561,7 @@ function SleepTimeline({
           title="この期間の睡眠データはまだありません"
           description="Google Drive同期またはファイル読み込みが完了すると、日ごとの24時間バーがここに並びます。データ診断タブで同期状態を確認できます。"
           actionLabel="データ診断で同期状態を確認"
+          illustrationSrc={emptyTimelineWaiting}
         />
       </section>
     )
@@ -1633,6 +1657,7 @@ function FragmentationDetail({
           title="分割睡眠データはまだありません"
           description="データが届くと、睡眠が何回に分かれたか、主睡眠候補と短い睡眠の関係をここに表示します。"
           actionLabel="データ診断で同期状態を確認"
+          illustrationSrc={emptySplitSleep}
         />
       )}
       {summaries.map((summary) => (
@@ -1766,6 +1791,7 @@ function TodayActions({ actions }: { actions: ImprovementAction[] }) {
         <EmptyState
           title="睡眠データが少ないため、基本アクションを表示しています"
           description="データが増えると、分割睡眠や昼夜リズムの傾向に合わせた行動がここに並びます。"
+          illustrationSrc={emptyTodayWaiting}
         />
       )}
       <ActionGroup
@@ -1812,6 +1838,12 @@ function ActionGroup({
                 {toActionStatusLabel(action.priority)}
               </StatusBadge>
             </div>
+            <img
+              alt=""
+              aria-hidden="true"
+              className="action-card-illustration"
+              src={getActionIllustration(action)}
+            />
             <h2>{action.title}</h2>
             <p>{action.description}</p>
             <small>理由: {action.basis}</small>
@@ -2311,14 +2343,19 @@ function StatusBadge({
 function EmptyState({
   actionLabel,
   description,
+  illustrationSrc,
   title,
 }: {
   actionLabel?: string
   description: string
+  illustrationSrc?: string
   title: string
 }) {
   return (
     <section className="empty-state redesigned-empty-state">
+      {illustrationSrc && (
+        <img alt="" aria-hidden="true" className="empty-state-illustration" src={illustrationSrc} />
+      )}
       <p className="eyebrow">データ待ち</p>
       <h2>{title}</h2>
       <p>{description}</p>
@@ -3093,6 +3130,36 @@ function toActionStatusLabel(priority: ImprovementAction['priority']): string {
   }
 
   return '余裕があれば'
+}
+
+function getActionIllustration(action: ImprovementAction): string {
+  const text = `${action.id} ${action.title} ${action.description}`
+
+  if (text.includes('光') || text.includes('朝')) {
+    return actionSunrise
+  }
+
+  if (text.includes('水分') || text.includes('飲') || text.includes('落ち着')) {
+    return actionWarmDrink
+  }
+
+  if (text.includes('記録') || text.includes('準備') || text.includes('メモ')) {
+    return actionNote
+  }
+
+  if (text.includes('寝') || text.includes('眠') || text.includes('ベッド')) {
+    return actionBed
+  }
+
+  if (text.includes('カーテン') || text.includes('照明') || text.includes('部屋を明る')) {
+    return actionCurtain
+  }
+
+  if (text.includes('歩') || text.includes('散歩') || text.includes('外')) {
+    return actionWalk
+  }
+
+  return actionNote
 }
 
 function toRecommendedUseDescription(use: SourceRecommendedUse): string {
