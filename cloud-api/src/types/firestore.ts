@@ -35,6 +35,41 @@ export type SleepRecordDocument = {
   sourceFile: string
 }
 
+export type HealthMetricRecordDocument = {
+  recordId: string
+  userId: string
+  metricName:
+    | 'step_count'
+    | 'walking_running_distance'
+    | 'active_energy'
+    | 'heart_rate'
+    | 'respiratory_rate'
+    | 'heart_rate_variability'
+  metricGroup: 'activity' | 'vitals'
+  aggregation: 'daily_total' | 'sleep_window_summary'
+  granularity: 'day' | 'sleep_block'
+  date?: string
+  sleepDay?: string
+  sleepBlockId?: string
+  sleepBlockType?: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
+  isMainSleep?: boolean
+  windowStart: string
+  windowEnd: string
+  timezone?: 'Asia/Tokyo'
+  value?: number
+  valueAvg?: number
+  valueMin?: number
+  valueMax?: number
+  valueCount?: number
+  unit: 'count' | 'distance_raw' | 'energy_raw' | 'bpm' | 'breaths_per_min' | 'ms_raw'
+  sourceFormat: 'health_auto_export_json'
+  sourceKey: string
+  sourceName?: string
+  sourceRowCount: number
+  sourceFileCount: number
+  runId: string
+}
+
 export type ProcessedDriveFileStatus = 'processed' | 'failed' | 'skipped'
 
 export type ProcessedDriveFileDocument = {
@@ -70,4 +105,25 @@ export type DriveSyncRunDocument = {
   skippedDuplicateCount: number
   warningCount: number
   rejectedRows: number
+  metricAuditStatus?: 'completed' | 'completed_with_warnings' | 'no_metrics'
+  metricAuditMetricCount?: number
+  metricAuditWarningCount?: number
+  metricAuditSummaryRef?: string
+  metricAuditAuditedFileCount?: number
+  metricAuditProcessedFileCount?: number
+  metricAuditSkippedProcessedFileCount?: number
+  healthMetricSaveStatus?: 'completed' | 'completed_with_warnings' | 'skipped'
+  healthMetricSavedRecordCount?: number
+  healthMetricUpdatedRecordCount?: number
+  healthMetricSkippedMetricCount?: number
+  healthMetricRejectedRowCount?: number
+  healthMetricTargetMetrics?: string[]
+  healthMetricBackfillFileCount?: number
+  sleepWindowMetricSaveStatus?: 'completed' | 'completed_with_warnings' | 'skipped'
+  sleepWindowMetricSavedRecordCount?: number
+  sleepWindowMetricUpdatedRecordCount?: number
+  sleepWindowMetricSkippedMetricCount?: number
+  sleepWindowMetricRejectedRowCount?: number
+  sleepWindowMetricTargetMetrics?: string[]
+  sleepWindowMetricBackfillFileCount?: number
 }

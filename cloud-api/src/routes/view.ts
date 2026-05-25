@@ -8,6 +8,7 @@ import {
   getUnifiedTimeline,
   parseDays,
 } from '../lib/viewModels.js'
+import { getSleepHealthContext } from '../lib/sleepHealthContext.js'
 import { sendJson, sendSafeError } from '../lib/security.js'
 
 export async function handleImportStatus(
@@ -72,6 +73,19 @@ export async function handleInsights(
   try {
     const userId = await authorizeViewRequest(request)
     sendJson(response, 200, await getInsights(parseDays(url.searchParams.get('days')), userId))
+  } catch (error) {
+    sendViewError(response, error)
+  }
+}
+
+export async function handleSleepHealthContext(
+  request: IncomingMessage,
+  url: URL,
+  response: ServerResponse,
+): Promise<void> {
+  try {
+    const userId = await authorizeViewRequest(request)
+    sendJson(response, 200, await getSleepHealthContext(parseDays(url.searchParams.get('days')), userId))
   } catch (error) {
     sendViewError(response, error)
   }

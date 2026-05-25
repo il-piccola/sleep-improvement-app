@@ -7,7 +7,7 @@ import type {
   SleepRecordDocument,
 } from '../types/firestore.js'
 
-type SleepBlockView = {
+export type SleepBlockView = {
   start: string
   end: string
   durationMinutes: number
@@ -16,7 +16,7 @@ type SleepBlockView = {
   sourceLabels: string[]
 }
 
-type SummaryView = {
+export type SummaryView = {
   date: string
   totalSleepMinutes: number
   sleepCount: number
@@ -26,7 +26,7 @@ type SummaryView = {
   circadianScore: number
 }
 
-type DayModel = {
+export type DayModel = {
   date: string
   blocks: SleepBlockView[]
 }

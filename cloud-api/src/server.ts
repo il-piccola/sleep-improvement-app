@@ -7,6 +7,7 @@ import {
   handleImportStatus,
   handleDriveSyncStatus,
   handleInsights,
+  handleSleepHealthContext,
   handleSummaries,
   handleUnifiedTimeline,
 } from './routes/view.js'
@@ -45,7 +46,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (url.pathname === '/api/drive-sync') {
-      await handleDriveSync(request, response, token)
+      await handleDriveSync(request, url, response, token)
       return
     }
 
@@ -71,6 +72,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/insights') {
       await handleInsights(request, url, response)
+      return
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/sleep-health-context') {
+      await handleSleepHealthContext(request, url, response)
       return
     }
 
