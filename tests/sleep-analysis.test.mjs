@@ -93,6 +93,7 @@ async function runAllCases() {
   testUnifiedIsolatedAwakeIsNotCounted()
   testTodaySleepSummaryUsesCurrentSleepDayOnly()
   testTodaySleepSummaryReturnsNullWhenOnlyOldDataExists()
+  testTodaySleepSummaryFallsBackAfterBoundaryWhenCurrentDayIsEmpty()
   testSourcePreferenceExclusionRecalculatesAnalysis()
   testSourcePreferencePrimaryChangesUnifiedWinner()
   testSourcePreferenceFallbackDoesNotOverwriteActualSleep()
@@ -352,6 +353,25 @@ function testTodaySleepSummaryReturnsNullWhenOnlyOldDataExists() {
   assert.equal(selected.targetSleepDayKey, '2026-05-17')
   assert.equal(selected.todaySummary, null)
   assert.equal(selected.latestSummary?.sleepDayKey, '2026-01-02')
+  assert.equal(selected.displaySummary?.sleepDayKey, '2026-01-02')
+  assert.equal(selected.isFallback, true)
+}
+
+function testTodaySleepSummaryFallsBackAfterBoundaryWhenCurrentDayIsEmpty() {
+  const summaries = summarizeUnified([
+    sourceRecord('latest-main', 'withings', 'Withings', '2026-05-25T00:30:00+09:00', '2026-05-25T06:30:00+09:00', 'asleep_core'),
+  ])
+  const selected = selectTodaySleepSummary(
+    summaries,
+    {},
+    new Date('2026-05-25T19:00:00+09:00'),
+  )
+
+  assert.equal(selected.targetSleepDayKey, '2026-05-25')
+  assert.equal(selected.todaySummary, null)
+  assert.equal(selected.latestSummary?.sleepDayKey, '2026-05-24')
+  assert.equal(selected.displaySummary?.sleepDayKey, '2026-05-24')
+  assert.equal(selected.isFallback, true)
 }
 
 function testSourcePreferenceExclusionRecalculatesAnalysis() {

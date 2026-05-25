@@ -639,9 +639,9 @@
 
 .today-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 240px;
   gap: 18px;
-  align-items: stretch;
+  align-items: start;
   padding: 24px;
   border: 1px solid rgba(172, 194, 216, 0.74);
   border-radius: 8px;
@@ -674,10 +674,41 @@
   color: var(--color-ink);
 }
 
+.today-hero .sleep-day-note {
+  max-width: 680px;
+  padding: 10px 12px;
+  border: 1px solid rgba(158, 143, 209, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.today-hero .sleep-day-note strong {
+  margin: 0 3px;
+}
+
 .today-hero-main {
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.sleep-day-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.sleep-day-title-row h2 {
+  margin: 0;
+}
+
+.sleep-day-title-row .sync-pill {
+  flex: 0 1 auto;
 }
 
 .empty-dashboard-grid {
@@ -757,8 +788,15 @@
 }
 
 .today-total {
-  min-width: 174px;
-  padding: 16px;
+  align-self: start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 14px;
+  row-gap: 8px;
+  width: 240px;
+  min-width: 0;
+  padding: 14px 16px;
   border-radius: 8px;
   background: linear-gradient(180deg, #e9f4fb, #e8f2ef);
 }
@@ -783,10 +821,21 @@
 
 .today-total strong {
   display: block;
-  margin-top: 8px;
+  margin-top: 0;
   color: #173c55;
-  font-size: 38px;
+  font-size: 32px;
   line-height: 1.05;
+  white-space: nowrap;
+}
+
+.today-total-illustration {
+  grid-column: 1 / -1;
+  justify-self: end;
+  width: min(196px, 88%);
+  margin: 0 -6px -12px 0;
+  opacity: 0.92;
+  filter: drop-shadow(0 14px 22px rgba(80, 73, 120, 0.13));
+  pointer-events: none;
 }
 
 .today-status-illustration {
@@ -891,6 +940,89 @@
   margin: 0;
   color: var(--color-muted);
   font-size: 15px;
+}
+
+.sleep-health-change-card {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(172, 162, 226, 0.42);
+  background:
+    radial-gradient(circle at top right, rgba(255, 230, 199, 0.5), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(247, 242, 255, 0.9));
+}
+
+.sleep-health-change-card .section-head-row {
+  margin-bottom: 6px;
+}
+
+.section-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.sleep-health-change-copy,
+.sleep-health-change-note {
+  margin: 0 0 12px;
+  color: var(--color-muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.sleep-health-change-note {
+  padding: 10px 12px;
+  border: 1px solid rgba(216, 166, 80, 0.32);
+  border-radius: 14px;
+  background: rgba(255, 246, 226, 0.72);
+  color: #735c2a;
+  font-weight: 700;
+}
+
+.sleep-health-change-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sleep-health-change-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.sleep-health-change-item span {
+  color: var(--color-ink);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.sleep-health-change-item p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.48;
+}
+
+.sleep-health-change-item.good {
+  border-color: rgba(117, 187, 158, 0.45);
+  background: rgba(232, 248, 241, 0.78);
+}
+
+.sleep-health-change-item.notice {
+  border-color: rgba(224, 189, 118, 0.45);
+  background: rgba(255, 245, 224, 0.78);
+}
+
+.sleep-health-change-item.calm {
+  border-color: rgba(176, 187, 220, 0.45);
+  background: rgba(244, 247, 255, 0.78);
 }
 
 .drive-sync-mini-grid,
@@ -2828,6 +2960,7 @@
   .metric-grid,
   .today-hero-facts,
   .today-focus-grid,
+  .sleep-health-change-list,
   .score-insight-grid,
   .trend-grid,
   .data-view-toggle,
@@ -2876,6 +3009,16 @@
   .today-hero {
     grid-template-columns: 1fr;
     padding: 16px;
+  }
+
+  .today-hero:not(.empty) {
+    grid-template-columns: 1fr;
+    padding-top: 16px;
+  }
+
+  .today-hero:not(.empty) .today-hero-main {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .page-header {
@@ -2977,12 +3120,44 @@
   }
 
   .today-total {
+    display: grid;
+    grid-template-columns: 1fr;
+    position: absolute;
+    top: 56px;
+    right: 16px;
+    grid-column: auto;
+    grid-row: auto;
+    align-self: auto;
+    justify-self: auto;
+    justify-content: start;
+    gap: 4px;
+    width: 124px;
     min-width: 0;
+    padding: 10px;
+  }
+
+  .today-total-illustration {
+    display: none;
+  }
+
+  .sleep-day-title-row {
+    display: grid;
+    gap: 8px;
+    min-height: 74px;
+    padding-right: 134px;
+  }
+
+  .sleep-day-title-row .sync-pill {
+    justify-self: start;
   }
 
   .today-hero.empty .today-total {
+    position: relative;
+    top: auto;
+    right: auto;
     justify-items: start;
     min-width: 0;
+    width: auto;
     text-align: left;
   }
 
@@ -2994,7 +3169,8 @@
   }
 
   .today-total strong {
-    font-size: 32px;
+    font-size: 21px;
+    white-space: normal;
   }
 
   .drive-sync-mini > strong {

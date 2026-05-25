@@ -17,6 +17,11 @@ import { selectTodaySleepSummary } from './lib/analysis/selectTodaySleepSummary'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
 import { getFirebaseAuth } from './lib/firebaseClient'
 import { resolveSleepSource } from './lib/source/resolveSleepSource'
+import {
+  buildSleepHealthChangeInsights,
+  type SleepHealthChangeInsight,
+  type SleepHealthDailyContextView,
+} from './lib/insights/sleepHealthChangeInsights'
 import sleepActionEvening from './assets/decorations/generated/sleep-action-evening-transparent.png'
 import sleepActionMorning from './assets/decorations/generated/sleep-action-morning-transparent.png'
 import sleepCompassLogo from './assets/branding/sleep-compass-logo-mark.png'
@@ -203,6 +208,16 @@ type DriveSyncStatusPayload = {
   warningCount: number
 }
 
+type SleepHealthContextPayload = {
+  days?: SleepHealthDailyContextView[]
+}
+
+type SleepHealthContextState = {
+  days: SleepHealthDailyContextView[]
+  error?: string | null
+  loading?: boolean
+}
+
 const screens: Array<{ id: AppScreen; label: string; shortLabel: string }> = [
   { id: 'dashboard', label: '今日の睡眠', shortLabel: '今日' },
   { id: 'timeline', label: 'タイムライン', shortLabel: '時間' },
@@ -237,6 +252,9 @@ function App() {
     connected: false,
   })
   const [driveSyncStatus, setDriveSyncStatus] = useState<DriveSyncStatusPayload | null>(null)
+  const [sleepHealthContext, setSleepHealthContext] = useState<SleepHealthContextState>({
+    days: [],
+  })
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUserInfo | null>(null)
   const firebaseAuthAvailable = Boolean(FIREBASE_AUTH)
 
@@ -260,7 +278,7 @@ function App() {
     )
     const todaySelection = selectTodaySleepSummary(summaries, config)
     const latestSummary = todaySelection.latestSummary
-    const todaySummary = todaySelection.todaySummary
+    const todaySummary = todaySelection.displaySummary
     const todayMetrics = todaySummary ? getDayMetrics(todaySummary) : null
     const todayActions = todaySummary ? generateImprovementActions([todaySummary], config) : []
 
@@ -277,6 +295,7 @@ function App() {
       sourceQuality,
       sourceDetails,
       unifiedTimeline,
+      isFallbackSleepDay: todaySelection.isFallback,
       targetSleepDayKey: todaySelection.targetSleepDayKey,
       latestSummary,
       todaySummary,
@@ -325,6 +344,7 @@ function App() {
 
       setLocalImportStatus(result.status)
       setDriveSyncStatus(result.driveSyncStatus ?? null)
+      setSleepHealthContext(result.sleepHealthContext ?? { days: [] })
 
       if (result.records.length > 0) {
         setSleepData({
@@ -461,6 +481,8 @@ function App() {
           metrics={analysis.todayMetrics}
           summary={analysis.todaySummary}
           summaries={displaySummaries}
+          sleepHealthContext={sleepHealthContext}
+          isFallbackSleepDay={analysis.isFallbackSleepDay}
           targetSleepDayKey={analysis.targetSleepDayKey}
         />
       )}
@@ -548,6 +570,7 @@ async function fetchLocalServerData(): Promise<{
   generatedAt?: string
   driveSyncStatus?: DriveSyncStatusPayload | null
   records: SleepRecord[]
+  sleepHealthContext?: SleepHealthContextState
   warnings: string[]
   status: LocalImportStatus
 }> {
@@ -592,6 +615,7 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
   generatedAt?: string
   driveSyncStatus?: DriveSyncStatusPayload | null
   records: SleepRecord[]
+  sleepHealthContext?: SleepHealthContextState
   warnings: string[]
   status: LocalImportStatus
 }> {
@@ -599,6 +623,10 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
     return {
       records: [],
       driveSyncStatus: null,
+      sleepHealthContext: {
+        days: [],
+        error: 'ログイン後に表示します。',
+      },
       warnings: [],
       status: {
         connected: false,
@@ -624,6 +652,10 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
     const driveStatusResponse = await fetch(`${CLOUD_API_BASE_URL}/api/drive-sync-status`, {
       headers,
     })
+    const sleepHealthContextResponse = await fetch(
+      `${CLOUD_API_BASE_URL}/api/sleep-health-context?days=30`,
+      { headers },
+    )
 
     if (!statusResponse.ok || !timelineResponse.ok || !driveStatusResponse.ok) {
       throw new Error('Cloud Run APIから睡眠データを取得できません。')
@@ -632,11 +664,22 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
     const statusPayload = (await statusResponse.json()) as CloudImportStatusPayload
     const timelinePayload = (await timelineResponse.json()) as CloudTimelinePayload
     const driveSyncStatus = (await driveStatusResponse.json()) as DriveSyncStatusPayload
+    const sleepHealthContext = sleepHealthContextResponse.ok
+      ? ((await sleepHealthContextResponse.json()) as SleepHealthContextPayload)
+      : null
     const records = cloudTimelineToSleepRecords(timelinePayload)
 
     return {
       generatedAt: statusPayload.lastIngestedAt ?? undefined,
       driveSyncStatus,
+      sleepHealthContext: {
+        days: Array.isArray(sleepHealthContext?.days) ? sleepHealthContext.days : [],
+        error: sleepHealthContextResponse.ok
+          ? null
+          : sleepHealthContextResponse.status === 401
+            ? 'ログイン状態を確認すると、変化候補を表示できます。'
+            : '変化候補を取得できませんでした。',
+      },
       records,
       warnings: [],
       status: {
@@ -660,6 +703,10 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
     return {
       records: [],
       driveSyncStatus: null,
+      sleepHealthContext: {
+        days: [],
+        error: error instanceof Error ? error.message : '変化候補を取得できませんでした。',
+      },
       warnings: [],
       status: {
         connected: false,
@@ -1009,19 +1056,23 @@ function TodaySleep({
   actions,
   driveSyncStatus,
   importedAt,
+  isFallbackSleepDay,
   localImportStatus,
   metrics,
   summary,
   summaries,
+  sleepHealthContext,
   targetSleepDayKey,
 }: {
   actions: ImprovementAction[]
   driveSyncStatus: DriveSyncStatusPayload | null
   importedAt?: string
+  isFallbackSleepDay: boolean
   localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
   summary: SleepDaySummary | null
   summaries: SleepDaySummary[]
+  sleepHealthContext: SleepHealthContextState
   targetSleepDayKey: string
 }) {
   const syncStatus = getCompactSyncStatus(localImportStatus, importedAt)
@@ -1098,6 +1149,11 @@ function TodaySleep({
 
   const primaryAction = actions[0]
   const focusPoints = buildTodayFocusPoints(summary, metrics)
+  const healthContextForDay =
+    sleepHealthContext.days.find((day) => day.sleepDay === summary.sleepDayKey) ??
+    sleepHealthContext.days[0] ??
+    null
+  const changeInsights = buildSleepHealthChangeInsights(healthContextForDay)
   const sevenDayTrend = getTrendComparison(summaries, summary, 7)
   const thirtyDayTrend = getTrendComparison(summaries, summary, 30)
   const visibleActions = actions.slice(0, 3)
@@ -1112,12 +1168,21 @@ function TodaySleep({
           src={sleepHeroJournal}
         />
         <div className="today-hero-main">
-          <p className="eyebrow">今日の睡眠</p>
-          <h2>{summary.sleepDayKey}</h2>
+          <p className="eyebrow">{isFallbackSleepDay ? '最新の睡眠' : '今日の睡眠'}</p>
+          <div className="sleep-day-title-row">
+            <h2>{summary.sleepDayKey}</h2>
+            <CompactSyncStatus status={syncStatus} />
+          </div>
           <p>
             最終取り込み: <strong>{formatDateTime(importedAt)}</strong>
           </p>
-          <CompactSyncStatus status={syncStatus} />
+          {isFallbackSleepDay && (
+            <p className="sleep-day-note">
+              表示中: {summary.sleepDayKey}の睡眠日。現在の睡眠日
+              <strong>{targetSleepDayKey}</strong>
+              はまだデータ待ちです。
+            </p>
+          )}
           <div className="today-hero-facts" aria-label="今日の睡眠の要点">
             <MiniFact label="睡眠回数" value={`${summary.blockCount}回`} />
             <MiniFact label="最終起床" value={metrics.finalWakeTime} />
@@ -1127,6 +1192,12 @@ function TodaySleep({
         <div className="today-total">
           <span>総睡眠時間</span>
           <strong>{formatMinutes(summary.totalSleepMinutes)}</strong>
+          <img
+            alt=""
+            aria-hidden="true"
+            className="today-total-illustration"
+            src={sleepHeroJournal}
+          />
         </div>
       </div>
 
@@ -1154,6 +1225,11 @@ function TodaySleep({
       </section>
 
       <DriveSyncMiniCard driveSyncStatus={driveSyncStatus} />
+
+      <SleepHealthChangeCard
+        error={sleepHealthContext.error}
+        insights={changeInsights}
+      />
 
       <div className="score-insight-grid">
         <ScoreInsightCard
@@ -1207,6 +1283,37 @@ function TodaySleep({
           ))}
         </div>
       </section>
+    </section>
+  )
+}
+
+function SleepHealthChangeCard({
+  error,
+  insights,
+}: {
+  error?: string | null
+  insights: SleepHealthChangeInsight[]
+}) {
+  return (
+    <section className="today-actions-panel sleep-health-change-card">
+      <div className="section-head-row">
+        <div>
+          <span className="section-kicker">気づき候補</span>
+          <h2>睡眠に影響していそうな変化</h2>
+        </div>
+      </div>
+      <p className="sleep-health-change-copy">
+        睡眠と活動の記録を並べて、見直しポイントだけを控えめに表示します。
+      </p>
+      {error && <p className="sleep-health-change-note">{error}</p>}
+      <div className="sleep-health-change-list">
+        {insights.map((insight) => (
+          <article className={`sleep-health-change-item ${insight.tone}`} key={insight.id}>
+            <span>{insight.title}</span>
+            <p>{insight.description}</p>
+          </article>
+        ))}
+      </div>
     </section>
   )
 }

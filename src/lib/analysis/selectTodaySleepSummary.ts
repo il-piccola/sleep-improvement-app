@@ -25,13 +25,20 @@ export function selectTodaySleepSummary(
   targetSleepDayKey: string
   todaySummary: SleepDaySummary | null
   latestSummary: SleepDaySummary | null
+  displaySummary: SleepDaySummary | null
+  isFallback: boolean
 } {
   const targetSleepDayKey = getCurrentSleepDayKey(now, config)
+  const todaySummary = summaries.find((summary) => summary.sleepDayKey === targetSleepDayKey) ?? null
+  const latestSummary = summaries.at(-1) ?? null
+  const displaySummary = todaySummary ?? latestSummary
 
   return {
     targetSleepDayKey,
-    todaySummary: summaries.find((summary) => summary.sleepDayKey === targetSleepDayKey) ?? null,
-    latestSummary: summaries.at(-1) ?? null,
+    todaySummary,
+    latestSummary,
+    displaySummary,
+    isFallback: !todaySummary && Boolean(latestSummary),
   }
 }
 
