@@ -689,6 +689,28 @@
   margin: 0 3px;
 }
 
+.sleep-day-notice {
+  display: grid;
+  gap: 4px;
+  max-width: 760px;
+  padding: 10px 12px;
+  border: 1px solid rgba(158, 143, 209, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.sleep-day-notice p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.sleep-day-notice.waiting {
+  border-color: rgba(217, 164, 65, 0.28);
+  background: rgba(255, 246, 226, 0.68);
+}
+
 .today-hero-main {
   display: grid;
   gap: 10px;
@@ -940,6 +962,59 @@
   margin: 0;
   color: var(--color-muted);
   font-size: 15px;
+}
+
+.sleep-import-state {
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(220, 238, 255, 0.48));
+  box-shadow: var(--shadow-soft);
+  text-align: left;
+}
+
+.sleep-import-state.compact {
+  padding: 12px;
+}
+
+.sleep-import-state-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.sleep-import-state-head span {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sleep-import-state-head strong {
+  color: var(--color-primary-deep);
+  font-size: 16px;
+}
+
+.sleep-import-state-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sleep-import-state-grid .mini-fact strong {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.sleep-day-boundary-strip {
+  padding: 11px 14px;
+  border: 1px solid rgba(158, 143, 209, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .sleep-health-change-card {
@@ -2315,6 +2390,7 @@
 .morning-action,
 .today-actions-panel,
 .drive-sync-mini,
+.sleep-import-state,
 .timeline-day-card,
 .fragmentation-day-card,
 .panel,
@@ -2545,7 +2621,8 @@
 
 .morning-action,
 .management-status-card,
-.drive-sync-mini {
+.drive-sync-mini,
+.sleep-import-state {
   border-color: rgba(255, 255, 255, 0.78);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.86), var(--color-mint));
 }
@@ -3175,6 +3252,15 @@
 
   .drive-sync-mini > strong {
     font-size: 18px;
+  }
+
+  .sleep-import-state-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sleep-import-state-head {
+    display: grid;
+    gap: 4px;
   }
 
   .mini-fact strong,

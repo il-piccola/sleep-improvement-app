@@ -22,6 +22,10 @@ import {
   type SleepHealthChangeInsight,
   type SleepHealthDailyContextView,
 } from './lib/insights/sleepHealthChangeInsights'
+import {
+  buildSleepDayDisplayStatus,
+  SLEEP_DAY_BOUNDARY_NOTICE,
+} from './lib/status/sleepDayVisibility'
 import sleepActionEvening from './assets/decorations/generated/sleep-action-evening-transparent.png'
 import sleepActionMorning from './assets/decorations/generated/sleep-action-morning-transparent.png'
 import sleepCompassLogo from './assets/branding/sleep-compass-logo-mark.png'
@@ -281,6 +285,7 @@ function App() {
     const todaySummary = todaySelection.displaySummary
     const todayMetrics = todaySummary ? getDayMetrics(todaySummary) : null
     const todayActions = todaySummary ? generateImprovementActions([todaySummary], config) : []
+    const latestSleepRecordAt = getLatestSleepRecordTimestamp(sleepData.records)
 
     return {
       blocks: unifiedTimeline.blocks,
@@ -298,6 +303,7 @@ function App() {
       isFallbackSleepDay: todaySelection.isFallback,
       targetSleepDayKey: todaySelection.targetSleepDayKey,
       latestSummary,
+      latestSleepRecordAt,
       todaySummary,
       todayMetrics,
       todayActions,
@@ -459,6 +465,8 @@ function App() {
           fileStatus={fileStatus}
           inputFileName={sleepData.inputFileName}
           localImportStatus={localImportStatus}
+          latestSleepRecordAt={analysis.latestSleepRecordAt}
+          latestSummary={analysis.latestSummary}
           driveSyncStatus={driveSyncStatus}
           onRescan={handleLocalRescan}
           recordCount={sleepData.records.length}
@@ -478,6 +486,7 @@ function App() {
           driveSyncStatus={driveSyncStatus}
           importedAt={sleepData.generatedAt}
           localImportStatus={localImportStatus}
+          latestSleepRecordAt={analysis.latestSleepRecordAt}
           metrics={analysis.todayMetrics}
           summary={analysis.todaySummary}
           summaries={displaySummaries}
@@ -774,6 +783,8 @@ function DataDiagnosis({
   driveSyncStatus,
   fileStatus,
   inputFileName,
+  latestSleepRecordAt,
+  latestSummary,
   localImportStatus,
   onRescan,
   recordCount,
@@ -788,6 +799,8 @@ function DataDiagnosis({
   driveSyncStatus: DriveSyncStatusPayload | null
   fileStatus: string
   inputFileName?: string
+  latestSleepRecordAt?: string
+  latestSummary: SleepDaySummary | null
   localImportStatus: LocalImportStatus
   onRescan: () => Promise<void>
   recordCount: number
@@ -812,6 +825,12 @@ function DataDiagnosis({
         ? '確認が必要なファイルがあります'
         : '同期状態を確認中です'
   const driveSyncTone = driveSyncStatus?.lastStatus === 'needs_attention' ? 'notice' : 'good'
+  const latestSleepDayKey = latestSummary?.sleepDayKey ?? null
+  const sleepDayStatus = buildSleepDayDisplayStatus({
+    displayedSleepDayKey: latestSleepDayKey,
+    isFallbackSleepDay: latestSleepDayKey ? latestSleepDayKey !== summaries[0]?.sleepDayKey : false,
+    targetSleepDayKey: latestSleepDayKey ?? '現在の睡眠日',
+  })
 
   return (
     <section className="diagnosis-screen">
@@ -855,6 +874,30 @@ function DataDiagnosis({
               <MetricPill label="最新データ日" value={report.latestRecordDateLabel} />
               <MetricPill label="日付範囲" value={report.dateRangeLabel} />
               <MetricPill label="睡眠ブロック" value={`${blockCount}件`} />
+            </div>
+          </Panel>
+          <Panel title="睡眠日の表示状態">
+            <div className="management-status-card sleep-day-status-card">
+              <StatusBadge tone={latestSummary ? 'calm' : 'notice'}>
+                {latestSummary ? '最新睡眠日を確認できます' : '睡眠データ待ち'}
+              </StatusBadge>
+              <p>{SLEEP_DAY_BOUNDARY_NOTICE}</p>
+            </div>
+            <div className="diagnosis-list">
+              <StatusRow label="最新睡眠日" value={latestSummary?.sleepDayKey ?? 'まだありません'} />
+              <StatusRow
+                label="最新睡眠レコード"
+                value={formatDateTime(latestSleepRecordAt)}
+              />
+              <StatusRow
+                label="最新Driveファイル"
+                value={driveSyncStatus?.latestFileName ?? '未取得'}
+              />
+              <StatusRow
+                label="Driveファイル更新"
+                value={formatDateTime(driveSyncStatus?.latestFileModifiedTime ?? undefined)}
+              />
+              <StatusRow label="表示ルール" value={sleepDayStatus.boundaryNotice} />
             </div>
           </Panel>
           <Panel title="データ品質の注意点">
@@ -1057,6 +1100,7 @@ function TodaySleep({
   driveSyncStatus,
   importedAt,
   isFallbackSleepDay,
+  latestSleepRecordAt,
   localImportStatus,
   metrics,
   summary,
@@ -1068,6 +1112,7 @@ function TodaySleep({
   driveSyncStatus: DriveSyncStatusPayload | null
   importedAt?: string
   isFallbackSleepDay: boolean
+  latestSleepRecordAt?: string
   localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
   summary: SleepDaySummary | null
@@ -1078,6 +1123,11 @@ function TodaySleep({
   const syncStatus = getCompactSyncStatus(localImportStatus, importedAt)
   const latestSummary = summaries[0] ?? null
   const latestMetrics = latestSummary ? getDayMetrics(latestSummary) : null
+  const displayStatus = buildSleepDayDisplayStatus({
+    displayedSleepDayKey: summary?.sleepDayKey ?? null,
+    isFallbackSleepDay,
+    targetSleepDayKey,
+  })
 
   if (!summary || !metrics) {
     return (
@@ -1093,7 +1143,7 @@ function TodaySleep({
             <p className="eyebrow">今日の睡眠</p>
             <h2>今日の睡眠データはまだ届いていません</h2>
             <p>
-              18:00から翌18:00までを1つの睡眠日として見ています。対象の睡眠日
+              {displayStatus.boundaryNotice} 対象の睡眠日
               <strong>{targetSleepDayKey}</strong>
               のデータが届くと、ここに今日の状態を表示します。
             </p>
@@ -1124,6 +1174,15 @@ function TodaySleep({
             </p>
           </article>
           <DriveSyncMiniCard driveSyncStatus={driveSyncStatus} />
+          <SleepImportStateCard
+            compact
+            driveSyncStatus={driveSyncStatus}
+            importedAt={importedAt}
+            latestSleepRecordAt={latestSleepRecordAt}
+            latestSummary={latestSummary}
+            sleepDayDisplayStatus={displayStatus}
+            targetSleepDayKey={targetSleepDayKey}
+          />
         </div>
 
         <section className="today-actions-panel next-step-panel">
@@ -1176,13 +1235,7 @@ function TodaySleep({
           <p>
             最終取り込み: <strong>{formatDateTime(importedAt)}</strong>
           </p>
-          {isFallbackSleepDay && (
-            <p className="sleep-day-note">
-              表示中: {summary.sleepDayKey}の睡眠日。現在の睡眠日
-              <strong>{targetSleepDayKey}</strong>
-              はまだデータ待ちです。
-            </p>
-          )}
+          <SleepDayNotice status={displayStatus} />
           <div className="today-hero-facts" aria-label="今日の睡眠の要点">
             <MiniFact label="睡眠回数" value={`${summary.blockCount}回`} />
             <MiniFact label="最終起床" value={metrics.finalWakeTime} />
@@ -1225,6 +1278,15 @@ function TodaySleep({
       </section>
 
       <DriveSyncMiniCard driveSyncStatus={driveSyncStatus} />
+
+      <SleepImportStateCard
+        driveSyncStatus={driveSyncStatus}
+        importedAt={importedAt}
+        latestSleepRecordAt={latestSleepRecordAt}
+        latestSummary={latestSummary}
+        sleepDayDisplayStatus={displayStatus}
+        targetSleepDayKey={targetSleepDayKey}
+      />
 
       <SleepHealthChangeCard
         error={sleepHealthContext.error}
@@ -1393,6 +1455,55 @@ function DriveSyncMiniCard({
         />
       </div>
       <p>詳細はデータ診断タブで確認できます。</p>
+    </article>
+  )
+}
+
+function SleepDayNotice({ status }: { status: ReturnType<typeof buildSleepDayDisplayStatus> }) {
+  return (
+    <div className={`sleep-day-notice ${status.isCurrentSleepDayWaiting ? 'waiting' : 'current'}`}>
+      <p>{status.reason}</p>
+      <p>{status.boundaryNotice}</p>
+    </div>
+  )
+}
+
+function SleepImportStateCard({
+  compact = false,
+  driveSyncStatus,
+  importedAt,
+  latestSleepRecordAt,
+  latestSummary,
+  sleepDayDisplayStatus,
+  targetSleepDayKey,
+}: {
+  compact?: boolean
+  driveSyncStatus: DriveSyncStatusPayload | null
+  importedAt?: string
+  latestSleepRecordAt?: string
+  latestSummary: SleepDaySummary | null
+  sleepDayDisplayStatus: ReturnType<typeof buildSleepDayDisplayStatus>
+  targetSleepDayKey: string
+}) {
+  const lastSync = driveSyncStatus?.lastSyncAt ?? importedAt
+  const latestFile = driveSyncStatus?.latestFileName ?? '未取得'
+  const currentSleepDayText = sleepDayDisplayStatus.isCurrentSleepDayWaiting
+    ? `${targetSleepDayKey}はデータ待ち`
+    : `${targetSleepDayKey}を表示中`
+
+  return (
+    <article className={`sleep-import-state ${compact ? 'compact' : ''}`}>
+      <div className="sleep-import-state-head">
+        <span>表示と取り込み</span>
+        <strong>{sleepDayDisplayStatus.isCurrentSleepDayWaiting ? '最新の睡眠日を表示中' : '現在の睡眠日を表示中'}</strong>
+      </div>
+      <div className="sleep-import-state-grid">
+        <MiniFact label="最終Drive同期" value={formatDateTime(lastSync)} />
+        <MiniFact label="最新Driveファイル" value={latestFile} />
+        <MiniFact label="最新睡眠レコード" value={formatDateTime(latestSleepRecordAt)} />
+        <MiniFact label="最新睡眠日" value={latestSummary?.sleepDayKey ?? 'まだありません'} />
+        <MiniFact label="現在の睡眠日" value={currentSleepDayText} />
+      </div>
     </article>
   )
 }
@@ -1714,6 +1825,7 @@ function SleepTimeline({
         title="日ごとの24時間バー"
         description="18:00 / 0:00 / 6:00 / 12:00 / 18:00 の流れで、複数回の睡眠も同じ線上に残します。"
       />
+      <div className="sleep-day-boundary-strip">{SLEEP_DAY_BOUNDARY_NOTICE}</div>
       {summaries.map((summary) => (
         <TimelineDayCard key={summary.sleepDayKey} summary={summary} />
       ))}
@@ -2964,6 +3076,28 @@ function loadStoredConfig(): AnalysisConfig {
 
 function sortSleepSummariesDesc(summaries: SleepDaySummary[]): SleepDaySummary[] {
   return [...summaries].sort((left, right) => right.sleepDayKey.localeCompare(left.sleepDayKey))
+}
+
+function getLatestSleepRecordTimestamp(records: SleepRecord[]): string | undefined {
+  let latestTime = Number.NEGATIVE_INFINITY
+  let latestTimestamp: string | undefined
+
+  for (const record of records) {
+    const timestamp = record.end ?? record.endDate ?? record.start ?? record.startDate
+
+    if (!timestamp) {
+      continue
+    }
+
+    const time = new Date(timestamp).getTime()
+
+    if (Number.isFinite(time) && time > latestTime) {
+      latestTime = time
+      latestTimestamp = timestamp
+    }
+  }
+
+  return latestTimestamp
 }
 
 function getCompactSyncStatus(
