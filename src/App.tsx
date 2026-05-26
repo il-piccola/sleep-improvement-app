@@ -26,6 +26,13 @@ import {
   buildSleepDayDisplayStatus,
   SLEEP_DAY_BOUNDARY_NOTICE,
 } from './lib/status/sleepDayVisibility'
+import {
+  buildDataAvailabilityReasons,
+  buildSleepDayDataDiagnostics,
+  toDataStatusLabel,
+  type SleepDayDataDiagnosticRow,
+  type SleepDayDataStatus,
+} from './lib/status/sleepDayDataDiagnostics'
 import sleepActionEvening from './assets/decorations/generated/sleep-action-evening-transparent.png'
 import sleepActionMorning from './assets/decorations/generated/sleep-action-morning-transparent.png'
 import sleepCompassLogo from './assets/branding/sleep-compass-logo-mark.png'
@@ -467,6 +474,7 @@ function App() {
           localImportStatus={localImportStatus}
           latestSleepRecordAt={analysis.latestSleepRecordAt}
           latestSummary={analysis.latestSummary}
+          sleepHealthContext={sleepHealthContext}
           driveSyncStatus={driveSyncStatus}
           onRescan={handleLocalRescan}
           recordCount={sleepData.records.length}
@@ -486,7 +494,6 @@ function App() {
           driveSyncStatus={driveSyncStatus}
           importedAt={sleepData.generatedAt}
           localImportStatus={localImportStatus}
-          latestSleepRecordAt={analysis.latestSleepRecordAt}
           metrics={analysis.todayMetrics}
           summary={analysis.todaySummary}
           summaries={displaySummaries}
@@ -792,6 +799,7 @@ function DataDiagnosis({
   sourceKind,
   overlapReport,
   sourceQuality,
+  sleepHealthContext,
   summaries,
   unifiedTimeline,
   warnings,
@@ -808,6 +816,7 @@ function DataDiagnosis({
   sourceKind?: string
   overlapReport: SleepOverlapReport
   sourceQuality: SourceQualityReport[]
+  sleepHealthContext: SleepHealthContextState
   summaries: SleepDaySummary[]
   unifiedTimeline: UnifiedSleepTimeline
   warnings: string[]
@@ -830,6 +839,12 @@ function DataDiagnosis({
     displayedSleepDayKey: latestSleepDayKey,
     isFallbackSleepDay: latestSleepDayKey ? latestSleepDayKey !== summaries[0]?.sleepDayKey : false,
     targetSleepDayKey: latestSleepDayKey ?? '現在の睡眠日',
+  })
+  const sleepDayDataRows = buildSleepDayDataDiagnostics({
+    contexts: sleepHealthContext.days,
+    displayedSleepDay: latestSleepDayKey,
+    limit: 7,
+    targetSleepDay: latestSleepDayKey ?? '現在の睡眠日',
   })
 
   return (
@@ -911,6 +926,15 @@ function DataDiagnosis({
             </ul>
           </Panel>
           <DriveSyncStatusCard driveSyncStatus={driveSyncStatus} />
+          <SleepImportStateCard
+            driveSyncStatus={driveSyncStatus}
+            importedAt={localImportStatus.lastImportedAt ?? undefined}
+            latestSleepRecordAt={latestSleepRecordAt}
+            latestSummary={latestSummary}
+            sleepDayDisplayStatus={sleepDayStatus}
+            targetSleepDayKey={latestSleepDayKey ?? '現在の睡眠日'}
+          />
+          <SleepDayDataDiagnosticsPanel rows={sleepDayDataRows} />
           <Panel title="この画面の見方">
             <p className="muted">
               睡眠日は18:00から翌18:00までで見ています。複数回の睡眠も消さずに扱い、注意点がある時だけここに表示します。
@@ -1100,7 +1124,6 @@ function TodaySleep({
   driveSyncStatus,
   importedAt,
   isFallbackSleepDay,
-  latestSleepRecordAt,
   localImportStatus,
   metrics,
   summary,
@@ -1112,7 +1135,6 @@ function TodaySleep({
   driveSyncStatus: DriveSyncStatusPayload | null
   importedAt?: string
   isFallbackSleepDay: boolean
-  latestSleepRecordAt?: string
   localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
   summary: SleepDaySummary | null
@@ -1174,15 +1196,6 @@ function TodaySleep({
             </p>
           </article>
           <DriveSyncMiniCard driveSyncStatus={driveSyncStatus} />
-          <SleepImportStateCard
-            compact
-            driveSyncStatus={driveSyncStatus}
-            importedAt={importedAt}
-            latestSleepRecordAt={latestSleepRecordAt}
-            latestSummary={latestSummary}
-            sleepDayDisplayStatus={displayStatus}
-            targetSleepDayKey={targetSleepDayKey}
-          />
         </div>
 
         <section className="today-actions-panel next-step-panel">
@@ -1219,28 +1232,33 @@ function TodaySleep({
 
   return (
     <section className="today-screen">
-      <div className="today-hero">
+      <div className="today-hero today-hero-overview">
         <img
           alt=""
           aria-hidden="true"
           className="hero-decoration"
           src={sleepHeroJournal}
         />
-        <div className="today-hero-main">
+        <div className="today-hero-column today-date-column">
           <p className="eyebrow">{isFallbackSleepDay ? '最新の睡眠' : '今日の睡眠'}</p>
-          <div className="sleep-day-title-row">
-            <h2>{summary.sleepDayKey}</h2>
-            <CompactSyncStatus status={syncStatus} />
-          </div>
-          <p>
-            最終取り込み: <strong>{formatDateTime(importedAt)}</strong>
+          <h2>{summary.sleepDayKey}</h2>
+          <p className="today-import-line">
+            <span>最終取り込み</span>
+            <strong>{formatDateTime(importedAt)}</strong>
           </p>
+        </div>
+        <div className="today-hero-column today-sync-column">
+          <span className="today-column-label">自動取り込み</span>
+          <CompactSyncStatus status={syncStatus} />
+        </div>
+        <div className="today-hero-column today-context-column">
+          <span className="today-column-label">現在の睡眠日</span>
           <SleepDayNotice status={displayStatus} />
-          <div className="today-hero-facts" aria-label="今日の睡眠の要点">
-            <MiniFact label="睡眠回数" value={`${summary.blockCount}回`} />
-            <MiniFact label="最終起床" value={metrics.finalWakeTime} />
-            <MiniFact label="中央時刻" value={metrics.sleepMidpoint} />
-          </div>
+        </div>
+        <div className="today-hero-facts" aria-label="今日の睡眠の要点">
+          <MiniFact label="睡眠回数" value={`${summary.blockCount}回`} />
+          <MiniFact label="最終起床" value={metrics.finalWakeTime} />
+          <MiniFact label="中央時刻" value={metrics.sleepMidpoint} />
         </div>
         <div className="today-total">
           <span>総睡眠時間</span>
@@ -1277,20 +1295,14 @@ function TodaySleep({
         </div>
       </section>
 
-      <DriveSyncMiniCard driveSyncStatus={driveSyncStatus} />
-
-      <SleepImportStateCard
-        driveSyncStatus={driveSyncStatus}
-        importedAt={importedAt}
-        latestSleepRecordAt={latestSleepRecordAt}
-        latestSummary={latestSummary}
-        sleepDayDisplayStatus={displayStatus}
-        targetSleepDayKey={targetSleepDayKey}
-      />
-
       <SleepHealthChangeCard
         error={sleepHealthContext.error}
         insights={changeInsights}
+        reasons={buildDataAvailabilityReasons({
+          comparisonDayCount: sleepHealthContext.days.length,
+          context: healthContextForDay,
+          currentSleepDayWaiting: isFallbackSleepDay,
+        })}
       />
 
       <div className="score-insight-grid">
@@ -1352,9 +1364,11 @@ function TodaySleep({
 function SleepHealthChangeCard({
   error,
   insights,
+  reasons,
 }: {
   error?: string | null
   insights: SleepHealthChangeInsight[]
+  reasons: string[]
 }) {
   return (
     <section className="today-actions-panel sleep-health-change-card">
@@ -1376,6 +1390,16 @@ function SleepHealthChangeCard({
           </article>
         ))}
       </div>
+      {reasons.length > 0 && (
+        <div className="sleep-health-reason-list">
+          <span>表示が少ない時の理由</span>
+          <ul>
+            {reasons.slice(0, 4).map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   )
 }
@@ -1705,6 +1729,56 @@ function DriveSyncStatusCard({
         </details>
       )}
     </Panel>
+  )
+}
+
+function SleepDayDataDiagnosticsPanel({ rows }: { rows: SleepDayDataDiagnosticRow[] }) {
+  return (
+    <Panel title="睡眠日ごとのデータ状況">
+      <p className="muted">
+        直近の睡眠日ごとに、睡眠・活動量・睡眠中メトリクスの有無だけを表示します。数値はここでは出しません。
+      </p>
+      <div className="sleep-day-data-list">
+        {rows.map((row) => (
+          <article className="sleep-day-data-row" key={row.sleepDay}>
+            <div>
+              <span className="eyebrow">睡眠日</span>
+              <strong>{row.sleepDay}</strong>
+              <small>{row.displayLabel}</small>
+            </div>
+            <DataStatusBadge label="睡眠" status={row.sleepDataStatus} />
+            <DataStatusBadge
+              detail={row.activityLabels.join(' / ') || undefined}
+              label="活動量"
+              status={row.activityDataStatus}
+            />
+            <DataStatusBadge
+              detail={row.sleepWindowMetricLabels.join(' / ') || undefined}
+              label="睡眠中"
+              status={row.sleepWindowMetricStatus}
+            />
+          </article>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
+function DataStatusBadge({
+  detail,
+  label,
+  status,
+}: {
+  detail?: string
+  label: string
+  status: SleepDayDataStatus
+}) {
+  return (
+    <div className={`data-status-badge ${status}`}>
+      <span>{label}</span>
+      <strong>{toDataStatusLabel(status)}</strong>
+      {detail && <small>{detail}</small>}
+    </div>
   )
 }
 

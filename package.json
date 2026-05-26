@@ -12,7 +12,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node tests/sleep-analysis.test.mjs && tsx tests/health-metrics-audit.test.ts && tsx tests/health-metric-aggregation.test.ts && tsx tests/sleep-window-metric-aggregation.test.ts && tsx tests/sleep-health-context.test.ts && tsx tests/sleep-health-change-insights.test.ts && tsx tests/sleep-day-visibility.test.ts"
+    "test": "node tests/sleep-analysis.test.mjs && tsx tests/health-metrics-audit.test.ts && tsx tests/health-metric-aggregation.test.ts && tsx tests/sleep-window-metric-aggregation.test.ts && tsx tests/sleep-health-context.test.ts && tsx tests/sleep-health-change-insights.test.ts && tsx tests/sleep-day-visibility.test.ts && tsx tests/sleep-day-data-diagnostics.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

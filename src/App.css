@@ -651,6 +651,32 @@
   text-align: left;
 }
 
+.today-hero-overview {
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(220px, 0.8fr);
+  align-items: stretch;
+}
+
+.today-hero-overview .today-date-column {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.today-hero-overview .today-sync-column {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.today-hero-overview .today-context-column {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.today-hero-overview .today-hero-facts {
+  grid-column: 1 / 4;
+  grid-row: 2;
+  align-self: end;
+}
+
 .today-hero.empty {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(239, 241, 255, 0.92) 48%, rgba(255, 245, 225, 0.88) 100%);
@@ -715,6 +741,48 @@
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.today-hero-column {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.today-hero-column .mini-fact {
+  align-self: end;
+}
+
+.today-column-label,
+.today-import-line span {
+  display: block;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.today-import-line {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.today-import-line strong,
+.today-current-sleep-day {
+  color: var(--color-primary-deep);
+  font-size: 17px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.sleep-start-note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .sleep-day-title-row {
@@ -821,6 +889,15 @@
   padding: 14px 16px;
   border-radius: 8px;
   background: linear-gradient(180deg, #e9f4fb, #e8f2ef);
+}
+
+.today-hero-overview .today-total {
+  grid-column: 4;
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  width: auto;
+  min-height: 100%;
+  align-content: center;
 }
 
 .today-hero.empty .today-total {
@@ -1098,6 +1175,99 @@
 .sleep-health-change-item.calm {
   border-color: rgba(176, 187, 220, 0.45);
   background: rgba(244, 247, 255, 0.78);
+}
+
+.sleep-health-reason-list {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(158, 143, 209, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.sleep-health-reason-list span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--color-primary-deep);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.sleep-health-reason-list ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.sleep-day-data-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sleep-day-data-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) repeat(3, minmax(90px, 0.8fr));
+  gap: 10px;
+  align-items: stretch;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.sleep-day-data-row strong,
+.sleep-day-data-row small {
+  display: block;
+}
+
+.sleep-day-data-row > div:first-child strong {
+  color: var(--color-primary-deep);
+  font-size: 18px;
+}
+
+.sleep-day-data-row small {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.data-status-badge {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.data-status-badge span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.data-status-badge strong {
+  color: var(--color-primary-deep);
+  font-size: 15px;
+}
+
+.data-status-badge.available {
+  background: rgba(217, 244, 238, 0.78);
+}
+
+.data-status-badge.partial {
+  background: rgba(255, 230, 199, 0.76);
+}
+
+.data-status-badge.waiting,
+.data-status-badge.not_available {
+  background: rgba(244, 247, 255, 0.76);
 }
 
 .drive-sync-mini-grid,
@@ -2899,6 +3069,7 @@
 }
 
 .today-hero-main,
+.today-hero-column,
 .today-total {
   position: relative;
   z-index: 1;
@@ -3088,6 +3259,53 @@
     padding: 16px;
   }
 
+  .today-hero-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-hero-overview .today-date-column,
+  .today-hero-overview .today-sync-column {
+    grid-column: auto;
+    grid-row: 1;
+  }
+
+  .today-hero-overview .today-context-column,
+  .today-hero-overview .today-total {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .today-hero-overview .today-hero-facts,
+  .today-hero-overview .today-total {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .today-hero-overview .today-hero-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .today-hero-overview .today-hero-facts .mini-fact {
+    padding: 10px 8px;
+  }
+
+  .today-hero-overview .today-hero-facts .mini-fact strong {
+    font-size: 18px;
+  }
+
+  .today-date-column h2 {
+    font-size: 24px;
+  }
+
+  .today-sync-column .sync-pill {
+    align-self: start;
+    padding: 9px 10px;
+  }
+
+  .today-sync-column .sync-pill strong {
+    font-size: 13px;
+  }
+
   .today-hero:not(.empty) {
     grid-template-columns: 1fr;
     padding-top: 16px;
@@ -3198,30 +3416,30 @@
 
   .today-total {
     display: grid;
-    grid-template-columns: 1fr;
-    position: absolute;
-    top: 56px;
-    right: 16px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    position: relative;
+    top: auto;
+    right: auto;
     grid-column: auto;
     grid-row: auto;
-    align-self: auto;
-    justify-self: auto;
-    justify-content: start;
-    gap: 4px;
-    width: 124px;
+    align-self: stretch;
+    justify-self: stretch;
+    justify-content: stretch;
+    gap: 8px 10px;
+    width: auto;
     min-width: 0;
-    padding: 10px;
+    padding: 12px;
   }
 
   .today-total-illustration {
-    display: none;
+    display: block;
+    width: min(132px, 42vw);
+    margin: -4px -4px -10px auto;
   }
 
   .sleep-day-title-row {
     display: grid;
     gap: 8px;
-    min-height: 74px;
-    padding-right: 134px;
   }
 
   .sleep-day-title-row .sync-pill {
@@ -3246,8 +3464,38 @@
   }
 
   .today-total strong {
-    font-size: 21px;
+    font-size: 25px;
     white-space: normal;
+  }
+
+  .today-hero.today-hero-overview:not(.empty) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-hero-overview .today-date-column {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .today-hero-overview .today-sync-column {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .today-hero-overview .today-context-column {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .today-hero-overview .today-hero-facts {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .today-hero-overview .today-total {
+    grid-column: 1 / -1;
+    grid-row: 4;
   }
 
   .drive-sync-mini > strong {
@@ -3272,6 +3520,14 @@
   .timeline-summary-list div {
     grid-template-columns: 1fr;
     gap: 3px;
+  }
+
+  .sleep-day-data-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sleep-health-change-list {
+    grid-template-columns: 1fr;
   }
 
   .timeline-summary-list strong {

@@ -35,6 +35,9 @@ export const FORBIDDEN_HEALTH_CHANGE_TERMS = [
   'リスク',
 ] as const
 
+const activityMetrics = ['step_count', 'walking_running_distance', 'active_energy'] as const
+const sleepWindowMetrics = ['heart_rate', 'respiratory_rate', 'heart_rate_variability'] as const
+
 export function buildSleepHealthChangeInsights(
   context: SleepHealthDailyContextView | null | undefined,
 ): SleepHealthChangeInsight[] {
@@ -56,7 +59,7 @@ export function buildSleepHealthChangeInsights(
     insights.push({
       id: 'insufficient-data',
       title: 'まだ傾向を見るにはデータが少なめです',
-      description: '数日分がそろうと、睡眠と活動の見直しポイントを並べやすくなります。',
+      description: getInsufficientDataDescription(context),
       tone: 'calm',
     })
   }
@@ -116,6 +119,35 @@ export function buildSleepHealthChangeInsights(
   }
 
   return dedupeInsights(insights).slice(0, 5)
+}
+
+function getInsufficientDataDescription(context: SleepHealthDailyContextView): string {
+  const missingMetrics = new Set(context.dataAvailability.missingMetrics)
+
+  if (!context.dataAvailability.hasDailyActivityMetrics) {
+    return '睡眠データはありますが、歩数・活動量データがまだ少なめです。'
+  }
+
+  if (!context.dataAvailability.hasSleepWindowMetrics) {
+    return '睡眠中の心拍・呼吸・HRVデータがまだ少なめです。'
+  }
+
+  const hasMissingActivity = activityMetrics.some((metric) => missingMetrics.has(metric))
+  const hasMissingSleepWindow = sleepWindowMetrics.some((metric) => missingMetrics.has(metric))
+
+  if (hasMissingActivity && hasMissingSleepWindow) {
+    return '活動量と睡眠中メトリクスの一部がまだ取得できていません。'
+  }
+
+  if (hasMissingActivity) {
+    return '歩数・距離・活動量の一部がまだ取得できていません。'
+  }
+
+  if (hasMissingSleepWindow) {
+    return '睡眠中の心拍・呼吸・HRVの一部がまだ取得できていません。'
+  }
+
+  return '直近比較に使える日数がまだ少なめです。'
 }
 
 function dedupeInsights(insights: SleepHealthChangeInsight[]): SleepHealthChangeInsight[] {
