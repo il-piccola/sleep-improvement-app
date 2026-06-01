@@ -1,5 +1,6 @@
-export const SLEEP_DAY_BOUNDARY_NOTICE =
-  '睡眠日は18:00で区切っています。未明〜夕方の睡眠は前日の睡眠日として表示されます。'
+import { buildSleepDayBoundaryNotice } from '../analysis/sleepDayBoundary'
+
+export const SLEEP_DAY_BOUNDARY_NOTICE = buildSleepDayBoundaryNotice()
 
 export const SLEEP_DAY_FALLBACK_NOTICE =
   '現在の睡眠日はまだデータ待ちのため、最新の睡眠日を表示しています。'
@@ -13,21 +14,24 @@ export type SleepDayDisplayStatus = {
 }
 
 export function buildSleepDayDisplayStatus({
+  boundaryHour,
   displayedSleepDayKey,
   isFallbackSleepDay,
   targetSleepDayKey,
 }: {
+  boundaryHour?: number
   displayedSleepDayKey?: string | null
   isFallbackSleepDay: boolean
   targetSleepDayKey: string
 }): SleepDayDisplayStatus {
+  const boundaryNotice = buildSleepDayBoundaryNotice(boundaryHour)
   const displayedSleepDayLabel = displayedSleepDayKey
     ? `${displayedSleepDayKey}の睡眠日`
     : '表示できる睡眠日はまだありません'
 
   if (isFallbackSleepDay && displayedSleepDayKey) {
     return {
-      boundaryNotice: SLEEP_DAY_BOUNDARY_NOTICE,
+      boundaryNotice,
       currentSleepDayLabel: 'データ待ち',
       displayedSleepDayLabel,
       isCurrentSleepDayWaiting: true,
@@ -36,7 +40,7 @@ export function buildSleepDayDisplayStatus({
   }
 
   return {
-    boundaryNotice: SLEEP_DAY_BOUNDARY_NOTICE,
+    boundaryNotice,
     currentSleepDayLabel: displayedSleepDayKey ? '表示中' : 'データ待ち',
     displayedSleepDayLabel,
     isCurrentSleepDayWaiting: !displayedSleepDayKey,

@@ -92,8 +92,10 @@ async function runAllCases() {
   testUnifiedSplitSleepDoesNotDisappear()
   testUnifiedIsolatedAwakeIsNotCounted()
   testTodaySleepSummaryUsesCurrentSleepDayOnly()
+  testTodaySleepSummaryUsesConfigurableBoundary()
   testTodaySleepSummaryReturnsNullWhenOnlyOldDataExists()
   testTodaySleepSummaryFallsBackAfterBoundaryWhenCurrentDayIsEmpty()
+  testSleepDayGroupingUsesConfigurableBoundary()
   testSourcePreferenceExclusionRecalculatesAnalysis()
   testSourcePreferencePrimaryChangesUnifiedWinner()
   testSourcePreferenceFallbackDoesNotOverwriteActualSleep()
@@ -340,6 +342,27 @@ function testTodaySleepSummaryUsesCurrentSleepDayOnly() {
   assert.equal(selected.todaySummary?.sleepDayKey, '2026-05-17')
 }
 
+function testTodaySleepSummaryUsesConfigurableBoundary() {
+  assert.equal(
+    getCurrentSleepDayKey(new Date('2026-05-18T13:00:00+09:00'), {
+      sleepDayBoundaryHour: 12,
+    }),
+    '2026-05-18',
+  )
+  assert.equal(
+    getCurrentSleepDayKey(new Date('2026-05-18T05:00:00+09:00'), {
+      sleepDayBoundaryHour: 6,
+    }),
+    '2026-05-17',
+  )
+  assert.equal(
+    getCurrentSleepDayKey(new Date('2026-05-18T07:00:00+09:00'), {
+      sleepDayBoundaryHour: 6,
+    }),
+    '2026-05-18',
+  )
+}
+
 function testTodaySleepSummaryReturnsNullWhenOnlyOldDataExists() {
   const summaries = summarizeUnified([
     sourceRecord('old-main', 'apple_watch', 'Apple Watch', '2026-01-02T23:00:00+09:00', '2026-01-03T05:00:00+09:00', 'asleep_core'),
@@ -372,6 +395,21 @@ function testTodaySleepSummaryFallsBackAfterBoundaryWhenCurrentDayIsEmpty() {
   assert.equal(selected.latestSummary?.sleepDayKey, '2026-05-24')
   assert.equal(selected.displaySummary?.sleepDayKey, '2026-05-24')
   assert.equal(selected.isFallback, true)
+}
+
+function testSleepDayGroupingUsesConfigurableBoundary() {
+  const summaries = summarizeUnified(
+    [
+      sourceRecord('before-noon', 'apple_watch', 'Apple Watch', '2026-05-15T11:00:00+09:00', '2026-05-15T11:30:00+09:00', 'asleep_core'),
+      sourceRecord('after-noon', 'apple_watch', 'Apple Watch', '2026-05-15T12:30:00+09:00', '2026-05-15T13:00:00+09:00', 'asleep_core'),
+    ],
+    { sleepDayBoundaryHour: 12 },
+  )
+
+  assert.deepEqual(
+    summaries.map((summary) => summary.sleepDayKey),
+    ['2026-05-14', '2026-05-15'],
+  )
 }
 
 function testSourcePreferenceExclusionRecalculatesAnalysis() {
@@ -1369,9 +1407,9 @@ function summarize(records) {
   return groups.map((group) => summarizeSleepDay(group))
 }
 
-function summarizeUnified(records) {
-  const timeline = buildUnifiedSleepTimeline(records)
-  const groups = groupBySleepDay(timeline.blocks)
+function summarizeUnified(records, config = {}) {
+  const timeline = buildUnifiedSleepTimeline(records, config)
+  const groups = groupBySleepDay(timeline.blocks, config)
   return groups.map((group) => summarizeSleepDay(group))
 }
 

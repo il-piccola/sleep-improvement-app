@@ -1,20 +1,13 @@
 import type { AnalysisConfig, SleepDaySummary } from '../../types/sleep'
 import { normalizeAnalysisConfig } from '../../types/sleep'
+import { getSleepDayBoundaryStart, getSleepDayKeyForDate } from './sleepDayBoundary'
 
 export function getCurrentSleepDayKey(
   now = new Date(),
   config: Partial<AnalysisConfig> = {},
 ): string {
   const normalizedConfig = normalizeAnalysisConfig(config)
-  const boundaryStart = new Date(now)
-
-  if (now.getHours() < normalizedConfig.sleepDayBoundaryHour) {
-    boundaryStart.setDate(boundaryStart.getDate() - 1)
-  }
-
-  boundaryStart.setHours(normalizedConfig.sleepDayBoundaryHour, 0, 0, 0)
-
-  return formatDateKey(boundaryStart)
+  return getSleepDayKeyForDate(now, normalizedConfig.sleepDayBoundaryHour)
 }
 
 export function selectTodaySleepSummary(
@@ -42,9 +35,12 @@ export function selectTodaySleepSummary(
   }
 }
 
-function formatDateKey(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+export function getCurrentSleepDayBoundaryStart(
+  now = new Date(),
+  config: Partial<AnalysisConfig> = {},
+): Date {
+  const normalizedConfig = normalizeAnalysisConfig(config)
+  const sleepDayKey = getCurrentSleepDayKey(now, normalizedConfig)
+
+  return getSleepDayBoundaryStart(sleepDayKey, normalizedConfig.sleepDayBoundaryHour)
 }

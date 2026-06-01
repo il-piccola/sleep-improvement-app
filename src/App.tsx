@@ -24,8 +24,13 @@ import {
 } from './lib/insights/sleepHealthChangeInsights'
 import {
   buildSleepDayDisplayStatus,
-  SLEEP_DAY_BOUNDARY_NOTICE,
 } from './lib/status/sleepDayVisibility'
+import {
+  buildSleepDayBoundaryNotice,
+  formatSleepDayBoundaryWindowLabel,
+  getSleepDayBoundaryScaleLabels,
+  getSleepDayBoundaryStart,
+} from './lib/analysis/sleepDayBoundary'
 import {
   buildDataAvailabilityReasons,
   buildSleepDayDataDiagnostics,
@@ -470,6 +475,7 @@ function App() {
 
       {activeScreen === 'diagnosis' && (
         <DataDiagnosis
+          config={config}
           fileStatus={fileStatus}
           inputFileName={sleepData.inputFileName}
           localImportStatus={localImportStatus}
@@ -492,6 +498,7 @@ function App() {
       {activeScreen === 'dashboard' && (
         <TodaySleep
           actions={analysis.todayActions}
+          config={config}
           driveSyncStatus={driveSyncStatus}
           importedAt={sleepData.generatedAt}
           localImportStatus={localImportStatus}
@@ -506,6 +513,7 @@ function App() {
 
       {activeScreen === 'timeline' && (
         <SleepTimeline
+          config={config}
           summaries={visibleSummaries}
           timelineView={timelineView}
           onTimelineViewChange={setTimelineView}
@@ -514,6 +522,7 @@ function App() {
 
       {activeScreen === 'fragmentation' && (
         <FragmentationDetail
+          config={config}
           summaries={visibleSummaries}
           timelineView={timelineView}
           onTimelineViewChange={setTimelineView}
@@ -788,6 +797,7 @@ async function requestLocalRescan(): Promise<LocalImportStatus> {
 }
 
 function DataDiagnosis({
+  config,
   driveSyncStatus,
   fileStatus,
   inputFileName,
@@ -805,6 +815,7 @@ function DataDiagnosis({
   unifiedTimeline,
   warnings,
 }: {
+  config: AnalysisConfig
   driveSyncStatus: DriveSyncStatusPayload | null
   fileStatus: string
   inputFileName?: string
@@ -837,6 +848,7 @@ function DataDiagnosis({
   const driveSyncTone = driveSyncStatus?.lastStatus === 'needs_attention' ? 'notice' : 'good'
   const latestSleepDayKey = latestSummary?.sleepDayKey ?? null
   const sleepDayStatus = buildSleepDayDisplayStatus({
+    boundaryHour: config.sleepDayBoundaryHour,
     displayedSleepDayKey: latestSleepDayKey,
     isFallbackSleepDay: latestSleepDayKey ? latestSleepDayKey !== summaries[0]?.sleepDayKey : false,
     targetSleepDayKey: latestSleepDayKey ?? '現在の睡眠日',
@@ -897,7 +909,7 @@ function DataDiagnosis({
               <StatusBadge tone={latestSummary ? 'calm' : 'notice'}>
                 {latestSummary ? '最新睡眠日を確認できます' : '睡眠データ待ち'}
               </StatusBadge>
-              <p>{SLEEP_DAY_BOUNDARY_NOTICE}</p>
+              <p>{sleepDayStatus.boundaryNotice}</p>
             </div>
             <div className="diagnosis-list">
               <StatusRow label="最新睡眠日" value={latestSummary?.sleepDayKey ?? 'まだありません'} />
@@ -939,7 +951,7 @@ function DataDiagnosis({
           <HealthAutoExportGuidePanel />
           <Panel title="この画面の見方">
             <p className="muted">
-              睡眠日は18:00から翌18:00までで見ています。複数回の睡眠も消さずに扱い、注意点がある時だけここに表示します。
+              睡眠日は{formatSleepDayBoundaryWindowLabel(config.sleepDayBoundaryHour)}で見ています。複数回の睡眠も消さずに扱い、注意点がある時だけここに表示します。
             </p>
             <DetailDisclosure title="判定メモと読み込み情報">
               <ul className="plain-list">
@@ -1123,6 +1135,7 @@ function DataDiagnosis({
 
 function TodaySleep({
   actions,
+  config,
   driveSyncStatus,
   importedAt,
   isFallbackSleepDay,
@@ -1134,6 +1147,7 @@ function TodaySleep({
   targetSleepDayKey,
 }: {
   actions: ImprovementAction[]
+  config: AnalysisConfig
   driveSyncStatus: DriveSyncStatusPayload | null
   importedAt?: string
   isFallbackSleepDay: boolean
@@ -1148,6 +1162,7 @@ function TodaySleep({
   const latestSummary = summaries[0] ?? null
   const latestMetrics = latestSummary ? getDayMetrics(latestSummary) : null
   const displayStatus = buildSleepDayDisplayStatus({
+    boundaryHour: config.sleepDayBoundaryHour,
     displayedSleepDayKey: summary?.sleepDayKey ?? null,
     isFallbackSleepDay,
     targetSleepDayKey,
@@ -1185,7 +1200,7 @@ function TodaySleep({
           </div>
         </div>
 
-        <TimelinePlaceholder />
+        <TimelinePlaceholder boundaryHour={config.sleepDayBoundaryHour} />
 
         <div className="empty-dashboard-grid">
           <article className="morning-action">
@@ -1274,7 +1289,7 @@ function TodaySleep({
         </div>
       </div>
 
-      <SleepTimeline24h summary={summary} />
+      <SleepTimeline24h boundaryHour={config.sleepDayBoundaryHour} summary={summary} />
 
       {primaryAction && (
         <article className="morning-action">
@@ -1419,19 +1434,19 @@ function CompactSyncStatus({
   )
 }
 
-function TimelinePlaceholder() {
+function TimelinePlaceholder({ boundaryHour }: { boundaryHour: number }) {
+  const scaleLabels = getSleepDayBoundaryScaleLabels(boundaryHour)
+
   return (
     <section className="today-actions-panel sleep-day-timeline timeline-placeholder-card">
       <div className="section-head-row">
         <h2>24時間睡眠タイムライン</h2>
-        <span className="timeline-window">18:00 - 翌18:00</span>
+        <span className="timeline-window">{formatSleepDayBoundaryWindowLabel(boundaryHour)}</span>
       </div>
       <div className="timeline-scale" aria-hidden="true">
-        <span>18:00</span>
-        <span>0:00</span>
-        <span>6:00</span>
-        <span>12:00</span>
-        <span>18:00</span>
+        {scaleLabels.map((label, index) => (
+          <span key={`${label}-${index}`}>{label}</span>
+        ))}
       </div>
       <div
         aria-label="今日の睡眠データ取得後に表示される24時間タイムライン"
@@ -1544,27 +1559,28 @@ function MiniFact({ label, value }: { label: string; value: string }) {
 }
 
 function SleepTimeline24h({
+  boundaryHour,
   embedded = false,
   summary,
 }: {
+  boundaryHour: number
   embedded?: boolean
   summary: SleepDaySummary
 }) {
-  const segments = getSleepTimelineSegments(summary)
+  const scaleLabels = getSleepDayBoundaryScaleLabels(boundaryHour)
+  const segments = getSleepTimelineSegments(summary, boundaryHour)
   const hasBlocks = segments.length > 0
 
   return (
     <section className={`${embedded ? 'embedded-timeline' : 'today-actions-panel'} sleep-day-timeline`}>
       <div className="section-head-row">
         <h2>24時間睡眠タイムライン</h2>
-        <span className="timeline-window">18:00 - 翌18:00</span>
+        <span className="timeline-window">{formatSleepDayBoundaryWindowLabel(boundaryHour)}</span>
       </div>
       <div className="timeline-scale" aria-hidden="true">
-        <span>18:00</span>
-        <span>0:00</span>
-        <span>6:00</span>
-        <span>12:00</span>
-        <span>18:00</span>
+        {scaleLabels.map((label, index) => (
+          <span key={`${label}-${index}`}>{label}</span>
+        ))}
       </div>
       <div
         aria-label={`${summary.sleepDayKey}の睡眠タイムライン`}
@@ -1891,21 +1907,26 @@ function AutoImportStatusPanel({
 }
 
 function SleepTimeline({
+  config,
   onTimelineViewChange,
   summaries,
   timelineView,
 }: {
+  config: AnalysisConfig
   onTimelineViewChange: (view: TimelineViewMode) => void
   summaries: SleepDaySummary[]
   timelineView: TimelineViewMode
 }) {
+  const scaleLabels = getSleepDayBoundaryScaleLabels(config.sleepDayBoundaryHour)
+  const scaleText = scaleLabels.join(' / ')
+
   if (summaries.length === 0) {
     return (
       <section className="stack timeline-screen">
         <PageHeader
           eyebrow="タイムライン"
           title="睡眠の形を日ごとに見る"
-          description="18:00から翌18:00までの24時間バーで、主睡眠・仮眠・補助睡眠の並びを確認します。"
+          description={`${formatSleepDayBoundaryWindowLabel(config.sleepDayBoundaryHour)}の24時間バーで、主睡眠・仮眠・補助睡眠の並びを確認します。`}
         />
         <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
         <EmptyState
@@ -1928,17 +1949,29 @@ function SleepTimeline({
       <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
       <SectionIntro
         title="日ごとの24時間バー"
-        description="18:00 / 0:00 / 6:00 / 12:00 / 18:00 の流れで、複数回の睡眠も同じ線上に残します。"
+        description={`${scaleText} の流れで、複数回の睡眠も同じ線上に残します。`}
       />
-      <div className="sleep-day-boundary-strip">{SLEEP_DAY_BOUNDARY_NOTICE}</div>
+      <div className="sleep-day-boundary-strip">
+        {buildSleepDayBoundaryNotice(config.sleepDayBoundaryHour)}
+      </div>
       {summaries.map((summary) => (
-        <TimelineDayCard key={summary.sleepDayKey} summary={summary} />
+        <TimelineDayCard
+          boundaryHour={config.sleepDayBoundaryHour}
+          key={summary.sleepDayKey}
+          summary={summary}
+        />
       ))}
     </section>
   )
 }
 
-function TimelineDayCard({ summary }: { summary: SleepDaySummary }) {
+function TimelineDayCard({
+  boundaryHour,
+  summary,
+}: {
+  boundaryHour: number
+  summary: SleepDaySummary
+}) {
   const metrics = getDayMetrics(summary)
   const status = getTimelineDayStatus(summary)
 
@@ -1956,7 +1989,7 @@ function TimelineDayCard({ summary }: { summary: SleepDaySummary }) {
         <MetricPill label="睡眠回数" value={`${summary.blockCount}回`} />
         <MetricPill label="主睡眠候補" value={formatBlock(metrics.mainSleep)} />
       </div>
-      <TimelineBar summary={summary} />
+      <TimelineBar boundaryHour={boundaryHour} summary={summary} />
       <DetailDisclosure title="睡眠ブロックの詳細">
         {summary.classifiedBlocks.length === 0 ? (
           <p className="muted">表示できる睡眠ブロックがありません。</p>
@@ -1988,10 +2021,12 @@ function TimelineDayCard({ summary }: { summary: SleepDaySummary }) {
 }
 
 function FragmentationDetail({
+  config,
   onTimelineViewChange,
   summaries,
   timelineView,
 }: {
+  config: AnalysisConfig
   onTimelineViewChange: (view: TimelineViewMode) => void
   summaries: SleepDaySummary[]
   timelineView: TimelineViewMode
@@ -2013,13 +2048,23 @@ function FragmentationDetail({
         />
       )}
       {summaries.map((summary) => (
-        <FragmentationDayCard key={summary.sleepDayKey} summary={summary} />
+        <FragmentationDayCard
+          boundaryHour={config.sleepDayBoundaryHour}
+          key={summary.sleepDayKey}
+          summary={summary}
+        />
       ))}
     </section>
   )
 }
 
-function FragmentationDayCard({ summary }: { summary: SleepDaySummary }) {
+function FragmentationDayCard({
+  boundaryHour,
+  summary,
+}: {
+  boundaryHour: number
+  summary: SleepDaySummary
+}) {
   const metrics = getDayMetrics(summary)
   const status = getTimelineDayStatus(summary)
 
@@ -2043,7 +2088,7 @@ function FragmentationDayCard({ summary }: { summary: SleepDaySummary }) {
         <MetricPill label="仮眠" value={formatBlockCount(metrics.napBlocks)} />
         <MetricPill label="夕方睡眠" value={metrics.eveningBlocks.length > 0 ? 'あり' : 'なし'} />
       </div>
-      <TimelineBar summary={summary} />
+      <TimelineBar boundaryHour={boundaryHour} summary={summary} />
       <SleepRelationDiagram summary={summary} />
       <section className="fragmentation-check-card">
         <div>
@@ -2258,7 +2303,7 @@ function Settings({
         </p>
         <div className="settings-grid">
           <NumberSetting
-            description="睡眠を何時で区切って1日分として見るかです。初期値は18:00なので、18:00から翌18:00までを1つの睡眠日として扱います。"
+            description={`睡眠を何時で区切って1日分として見るかです。現在は${formatSleepDayBoundaryWindowLabel(config.sleepDayBoundaryHour)}を1つの睡眠日として扱います。`}
             label="睡眠日の区切り"
             max={23}
             min={0}
@@ -2787,17 +2832,22 @@ function DataViewToggle({
   )
 }
 
-function TimelineBar({ summary }: { summary: SleepDaySummary }) {
-  const segments = getSleepTimelineSegments(summary)
+function TimelineBar({
+  boundaryHour,
+  summary,
+}: {
+  boundaryHour: number
+  summary: SleepDaySummary
+}) {
+  const scaleLabels = getSleepDayBoundaryScaleLabels(boundaryHour)
+  const segments = getSleepTimelineSegments(summary, boundaryHour)
 
   return (
     <section className="timeline-bar" aria-label={`${summary.sleepDayKey}の24時間バー`}>
       <div className="timeline-scale" aria-hidden="true">
-        <span>18:00</span>
-        <span>0:00</span>
-        <span>6:00</span>
-        <span>12:00</span>
-        <span>18:00</span>
+        {scaleLabels.map((label, index) => (
+          <span key={`${label}-${index}`}>{label}</span>
+        ))}
       </div>
       <div className="timeline-track" role="img">
         {segments.map((segment) => (
@@ -3296,8 +3346,11 @@ function getTimelineDayStatus(summary: SleepDaySummary): {
   return { label: '確認しやすい記録', tone: 'calm' }
 }
 
-function getSleepTimelineSegments(summary: SleepDaySummary): TimelineSegment[] {
-  const boundaryStart = parseSleepDayBoundaryStart(summary.sleepDayKey)
+function getSleepTimelineSegments(
+  summary: SleepDaySummary,
+  boundaryHour: number,
+): TimelineSegment[] {
+  const boundaryStart = getSleepDayBoundaryStart(summary.sleepDayKey, boundaryHour)
   const windowStart = boundaryStart.getTime()
   const windowEnd = windowStart + 24 * 60 * 60 * 1000
 
@@ -3329,16 +3382,6 @@ function getSleepTimelineSegments(summary: SleepDaySummary): TimelineSegment[] {
       }
     })
     .filter((segment): segment is TimelineSegment => segment !== null)
-}
-
-function parseSleepDayBoundaryStart(sleepDayKey: string): Date {
-  const [year, month, day] = sleepDayKey.split('-').map(Number)
-
-  if (!year || !month || !day) {
-    return new Date()
-  }
-
-  return new Date(year, month - 1, day, 18, 0, 0, 0)
 }
 
 function getTimelineSegmentTone(block: ClassifiedSleepBlock): TimelineSegment['tone'] {

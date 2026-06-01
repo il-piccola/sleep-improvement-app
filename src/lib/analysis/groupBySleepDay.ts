@@ -1,5 +1,6 @@
 import type { AnalysisConfig, SleepBlock, SleepDayGroup } from '../../types/sleep'
 import { normalizeAnalysisConfig } from '../../types/sleep'
+import { getSleepDayBoundaryStart, getSleepDayKeyForDate } from './sleepDayBoundary'
 
 export function groupBySleepDay(
   blocks: SleepBlock[],
@@ -39,20 +40,15 @@ function getSleepDay(
 } {
   if (block.startDate) {
     const start = new Date(block.startDate)
-    const boundaryStart = new Date(start)
-
-    if (start.getHours() < config.sleepDayBoundaryHour) {
-      boundaryStart.setDate(boundaryStart.getDate() - 1)
-    }
-
-    boundaryStart.setHours(config.sleepDayBoundaryHour, 0, 0, 0)
+    const key = getSleepDayKeyForDate(start, config.sleepDayBoundaryHour)
+    const boundaryStart = getSleepDayBoundaryStart(key, config.sleepDayBoundaryHour)
 
     const boundaryEnd = new Date(boundaryStart)
     boundaryEnd.setDate(boundaryEnd.getDate() + 1)
 
     return {
-      key: formatDateKey(boundaryStart),
-      sleepDayKey: formatDateKey(boundaryStart),
+      key,
+      sleepDayKey: key,
       boundaryStartDate: boundaryStart.toISOString(),
       boundaryEndDate: boundaryEnd.toISOString(),
     }
@@ -80,11 +76,4 @@ function sortBlocks(blocks: SleepBlock[]): SleepBlock[] {
 
     return left.id.localeCompare(right.id)
   })
-}
-
-function formatDateKey(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
