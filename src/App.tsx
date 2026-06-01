@@ -33,6 +33,7 @@ import {
   type SleepDayDataDiagnosticRow,
   type SleepDayDataStatus,
 } from './lib/status/sleepDayDataDiagnostics'
+import { healthAutoExportGuide } from './lib/status/healthAutoExportGuide'
 import sleepActionEvening from './assets/decorations/generated/sleep-action-evening-transparent.png'
 import sleepActionMorning from './assets/decorations/generated/sleep-action-morning-transparent.png'
 import sleepCompassLogo from './assets/branding/sleep-compass-logo-mark.png'
@@ -935,6 +936,7 @@ function DataDiagnosis({
             targetSleepDayKey={latestSleepDayKey ?? '現在の睡眠日'}
           />
           <SleepDayDataDiagnosticsPanel rows={sleepDayDataRows} />
+          <HealthAutoExportGuidePanel />
           <Panel title="この画面の見方">
             <p className="muted">
               睡眠日は18:00から翌18:00までで見ています。複数回の睡眠も消さずに扱い、注意点がある時だけここに表示します。
@@ -1663,6 +1665,35 @@ function TrendCard({
         {trend.averageBlockCount.toFixed(1)}回です。今日の睡眠回数は{countText}です。
       </p>
     </article>
+  )
+}
+
+function HealthAutoExportGuidePanel() {
+  return (
+    <Panel title="Health Auto Export 推奨出力">
+      <p className="muted">{healthAutoExportGuide.intro}</p>
+      <div className="hae-guide-grid">
+        {healthAutoExportGuide.outputSections.map((section) => (
+          <article className="hae-guide-card" key={section.title}>
+            <span>{section.title}</span>
+            {section.description && <p>{section.description}</p>}
+            <ul>
+              {section.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+      <DetailDisclosure title="同期が進まない時">
+        <ol className="hae-recovery-list">
+          {healthAutoExportGuide.recoverySteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <p className="muted">{healthAutoExportGuide.recoveryNote}</p>
+      </DetailDisclosure>
+    </Panel>
   )
 }
 

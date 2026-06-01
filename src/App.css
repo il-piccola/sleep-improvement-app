@@ -652,7 +652,7 @@
 }
 
 .today-hero-overview {
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(220px, 0.8fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr) minmax(220px, 0.9fr);
   align-items: stretch;
 }
 
@@ -667,13 +667,13 @@
 }
 
 .today-hero-overview .today-context-column {
-  grid-column: 3;
-  grid-row: 1;
+  grid-column: 1 / 3;
+  grid-row: 2;
 }
 
 .today-hero-overview .today-hero-facts {
-  grid-column: 1 / 4;
-  grid-row: 2;
+  grid-column: 1 / -1;
+  grid-row: 3;
   align-self: end;
 }
 
@@ -892,7 +892,7 @@
 }
 
 .today-hero-overview .today-total {
-  grid-column: 4;
+  grid-column: 3;
   grid-row: 1 / span 2;
   align-self: stretch;
   width: auto;
@@ -1084,6 +1084,12 @@
   font-size: 15px;
 }
 
+@media (min-width: 761px) {
+  .diagnosis-screen .sleep-import-state-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .sleep-day-boundary-strip {
   padding: 11px 14px;
   border: 1px solid rgba(158, 143, 209, 0.24);
@@ -1268,6 +1274,53 @@
 .data-status-badge.waiting,
 .data-status-badge.not_available {
   background: rgba(244, 247, 255, 0.76);
+}
+
+.hae-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.hae-guide-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.hae-guide-card span {
+  color: var(--color-primary-deep);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.hae-guide-card p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hae-guide-card ul,
+.hae-recovery-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.hae-guide-card li::marker,
+.hae-recovery-list li::marker {
+  color: var(--color-primary);
+  font-weight: 900;
 }
 
 .drive-sync-mini-grid,
@@ -3484,18 +3537,18 @@
 
   .today-hero-overview .today-context-column {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 3;
   }
 
   .today-hero-overview .today-hero-facts {
     grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 4;
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .today-hero-overview .today-total {
     grid-column: 1 / -1;
-    grid-row: 4;
+    grid-row: 2;
   }
 
   .drive-sync-mini > strong {
@@ -3523,6 +3576,10 @@
   }
 
   .sleep-day-data-row {
+    grid-template-columns: 1fr;
+  }
+
+  .hae-guide-grid {
     grid-template-columns: 1fr;
   }
 
