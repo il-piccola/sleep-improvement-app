@@ -30,6 +30,8 @@ Local Android notes:
 
 Use this flow when updating and reinstalling the Android display app locally.
 
+For updating Pixel 10a without a USB connection, see [Android APK distribution notes](docs/android-apk-distribution.md).
+
 Prerequisites:
 
 - JDK 21 is required.
