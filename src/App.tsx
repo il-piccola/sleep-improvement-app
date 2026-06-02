@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import './App.css'
 import sampleSleepData from './sample/anonymized-sleep-records.json'
 import {
@@ -15,6 +14,7 @@ import { evaluateSourceQuality } from './lib/analysis/evaluateSourceQuality'
 import { buildUnifiedSleepTimeline } from './lib/analysis/buildUnifiedSleepTimeline'
 import { selectTodaySleepSummary } from './lib/analysis/selectTodaySleepSummary'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
+import { getAppIdToken, signInToApp, signOutFromApp, subscribeToAppAuthState } from './lib/appAuth'
 import { getFirebaseAuth } from './lib/firebaseClient'
 import { resolveSleepSource } from './lib/source/resolveSleepSource'
 import {
@@ -336,17 +336,7 @@ function App() {
       return
     }
 
-    return onAuthStateChanged(FIREBASE_AUTH, (user) => {
-      setFirebaseUser(
-        user
-          ? {
-              displayName: user.displayName,
-              email: user.email,
-              uid: user.uid,
-            }
-          : null,
-      )
-    })
+    return subscribeToAppAuthState(FIREBASE_AUTH, setFirebaseUser)
   }, [])
 
   useEffect(() => {
@@ -662,7 +652,7 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
   }
 
   try {
-    const idToken = await FIREBASE_AUTH.currentUser?.getIdToken()
+    const idToken = await getAppIdToken(FIREBASE_AUTH)
 
     if (!idToken) {
       throw new Error('Firebase ID Tokenを取得できませんでした。')
@@ -2411,7 +2401,7 @@ function FirebaseUserPanel({
 
     try {
       setAuthStatus('')
-      await signInWithPopup(FIREBASE_AUTH, new GoogleAuthProvider())
+      await signInToApp(FIREBASE_AUTH)
     } catch (error) {
       setAuthStatus(error instanceof Error ? error.message : 'ログインできませんでした。')
     }
@@ -2424,7 +2414,7 @@ function FirebaseUserPanel({
 
     try {
       setAuthStatus('')
-      await signOut(FIREBASE_AUTH)
+      await signOutFromApp(FIREBASE_AUTH)
     } catch (error) {
       setAuthStatus(error instanceof Error ? error.message : 'ログアウトできませんでした。')
     }

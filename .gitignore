@@ -23,3 +23,6 @@ server-data
 *.njsproj
 *.sln
 *.sw?
+
+# Firebase configuration
+android/app/google-services.json

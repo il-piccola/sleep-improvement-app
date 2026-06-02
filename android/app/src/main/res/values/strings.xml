@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sleep Compass</string>
+    <string name="title_activity_main">Sleep Compass</string>
+    <string name="package_name">com.maya.sleepimprovement</string>
+    <string name="custom_url_scheme">com.maya.sleepimprovement</string>
+</resources>
