@@ -26,3 +26,7 @@ server-data
 
 # Firebase configuration
 android/app/google-services.json
+
+# Local Android debug APK archive
+dist-apk/*.apk
+!dist-apk/.gitkeep

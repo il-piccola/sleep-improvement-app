@@ -60,6 +60,51 @@ Debug APK path:
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Archive a named debug APK:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-debug-apk.ps1
+```
+
+This command builds the web app, syncs Capacitor Android, runs `assembleDebug`, and copies the generated debug APK into:
+
+```text
+dist-apk/
+```
+
+Naming format:
+
+```text
+SleepCompass-debug-YYYYMMDD-<shortCommit>.apk
+```
+
+Example:
+
+```text
+SleepCompass-debug-20260603-16a8efc.apk
+```
+
+If the working tree has uncommitted changes when the script runs, the filename includes `-dirty` so the APK is easy to distinguish from a clean commit build.
+
+APK archive notes:
+
+- `dist-apk/*.apk` is ignored by Git.
+- APK binaries should not be committed.
+- `dist-apk/.gitkeep` only keeps the local archive folder available in the repository.
+- Use saved APKs when reinstalling a known working local build or returning to a previous working version.
+
+Install a saved APK:
+
+```powershell
+adb install -r dist-apk/SleepCompass-debug-20260603-16a8efc.apk
+```
+
+Windows full-path `adb` example:
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" install -r dist-apk/SleepCompass-debug-20260603-16a8efc.apk
+```
+
 Install on Pixel 10a:
 
 ```powershell
