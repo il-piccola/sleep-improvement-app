@@ -466,22 +466,17 @@ function App() {
       {activeScreen === 'diagnosis' && (
         <DataDiagnosis
           config={config}
-          fileStatus={fileStatus}
-          inputFileName={sleepData.inputFileName}
           localImportStatus={localImportStatus}
           latestSleepRecordAt={analysis.latestSleepRecordAt}
           latestSummary={analysis.latestSummary}
           sleepHealthContext={sleepHealthContext}
           driveSyncStatus={driveSyncStatus}
           onRescan={handleLocalRescan}
-          recordCount={sleepData.records.length}
           report={analysis.dataQuality}
-          sourceKind={sleepData.sourceKind}
           overlapReport={analysis.overlapReport}
           sourceQuality={analysis.sourceQuality}
           summaries={displaySummaries}
           unifiedTimeline={analysis.unifiedTimeline}
-          warnings={sleepData.warnings}
         />
       )}
 
@@ -789,46 +784,32 @@ async function requestLocalRescan(): Promise<LocalImportStatus> {
 function DataDiagnosis({
   config,
   driveSyncStatus,
-  fileStatus,
-  inputFileName,
   latestSleepRecordAt,
   latestSummary,
   localImportStatus,
   onRescan,
-  recordCount,
   report,
-  sourceKind,
   overlapReport,
   sourceQuality,
   sleepHealthContext,
   summaries,
   unifiedTimeline,
-  warnings,
 }: {
   config: AnalysisConfig
   driveSyncStatus: DriveSyncStatusPayload | null
-  fileStatus: string
-  inputFileName?: string
   latestSleepRecordAt?: string
   latestSummary: SleepDaySummary | null
   localImportStatus: LocalImportStatus
   onRescan: () => Promise<void>
-  recordCount: number
   report: DataQualityReport
-  sourceKind?: string
   overlapReport: SleepOverlapReport
   sourceQuality: SourceQualityReport[]
   sleepHealthContext: SleepHealthContextState
   summaries: SleepDaySummary[]
   unifiedTimeline: UnifiedSleepTimeline
-  warnings: string[]
 }) {
   const [diagnosisView, setDiagnosisView] = useState<'normal' | 'detail'>('normal')
   const blockCount = summaries.reduce((sum, summary) => sum + summary.blockCount, 0)
-  const actualTimeBlocks = summaries.flatMap((summary) =>
-    summary.classifiedBlocks.filter((block) => block.timeConfidence === 'actual'),
-  ).length
-  const notes = summaries.flatMap((summary) => summary.notes)
   const driveSyncLabel =
     driveSyncStatus?.lastStatus === 'normal'
       ? '正常に同期されています'
@@ -918,6 +899,26 @@ function DataDiagnosis({
               <StatusRow label="表示ルール" value={sleepDayStatus.boundaryNotice} />
             </div>
           </Panel>
+          <SleepImportStateCard
+            driveSyncStatus={driveSyncStatus}
+            importedAt={localImportStatus.lastImportedAt ?? undefined}
+            latestSleepRecordAt={latestSleepRecordAt}
+            latestSummary={latestSummary}
+            sleepDayDisplayStatus={sleepDayStatus}
+            targetSleepDayKey={latestSleepDayKey ?? '現在の睡眠日'}
+          />
+          <DriveSyncStatusCard driveSyncStatus={driveSyncStatus} />
+          <HealthAutoExportGuidePanel />
+          <Panel title="この画面の見方">
+            <p className="muted">
+              この画面では、取り込み状況・睡眠日ごとのデータ有無・Health Auto Exportの出力目安を確認できます。
+            </p>
+            <ul className="plain-list">
+              <li>「表示と取り込み」は、画面に出ている睡眠日と最新データの到達状況を確認する欄です。</li>
+              <li>「睡眠日ごとのデータ状況」は詳細確認用です。必要な時だけ最後に見れば十分です。</li>
+              <li>睡眠日は{formatSleepDayBoundaryWindowLabel(config.sleepDayBoundaryHour)}で見ています。</li>
+            </ul>
+          </Panel>
           <Panel title="データ品質の注意点">
             <ul className="quality-list">
               {report.issues.map((issue) => (
@@ -928,40 +929,7 @@ function DataDiagnosis({
               {report.issues.length === 0 && <li>目立つ注意点はありません。</li>}
             </ul>
           </Panel>
-          <DriveSyncStatusCard driveSyncStatus={driveSyncStatus} />
-          <SleepImportStateCard
-            driveSyncStatus={driveSyncStatus}
-            importedAt={localImportStatus.lastImportedAt ?? undefined}
-            latestSleepRecordAt={latestSleepRecordAt}
-            latestSummary={latestSummary}
-            sleepDayDisplayStatus={sleepDayStatus}
-            targetSleepDayKey={latestSleepDayKey ?? '現在の睡眠日'}
-          />
           <SleepDayDataDiagnosticsPanel rows={sleepDayDataRows} />
-          <HealthAutoExportGuidePanel />
-          <Panel title="この画面の見方">
-            <p className="muted">
-              睡眠日は{formatSleepDayBoundaryWindowLabel(config.sleepDayBoundaryHour)}で見ています。複数回の睡眠も消さずに扱い、注意点がある時だけここに表示します。
-            </p>
-            <DetailDisclosure title="判定メモと読み込み情報">
-              <ul className="plain-list">
-                {warnings.map((warning) => (
-                  <li className="warning-note" key={warning}>
-                    {warning}
-                  </li>
-                ))}
-                <li>読み込み状態: {fileStatus}</li>
-                <li>ファイル名: {inputFileName ?? '匿名サンプル'}</li>
-                <li>データ種別: {sourceKind ?? '不明'}</li>
-                <li>睡眠レコード: {recordCount}件</li>
-                <li>時刻つきブロック: {actualTimeBlocks}件</li>
-                <li>健康データはこの画面内で処理し、外部送信しません。</li>
-                {notes.slice(0, 6).map((note) => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            </DetailDisclosure>
-          </Panel>
         </div>
       )}
 

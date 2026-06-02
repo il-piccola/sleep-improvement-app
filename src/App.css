@@ -1079,6 +1079,23 @@
   gap: 8px;
 }
 
+.diagnosis-screen .sleep-import-state-grid {
+  grid-template-columns: 1fr;
+}
+
+.diagnosis-screen .sleep-import-state-grid .mini-fact {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.32fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+}
+
+.diagnosis-screen .sleep-import-state-grid .mini-fact span,
+.diagnosis-screen .sleep-import-state-grid .mini-fact strong {
+  margin: 0;
+}
+
 .sleep-import-state-grid .mini-fact strong {
   overflow-wrap: anywhere;
   font-size: 15px;
@@ -1685,6 +1702,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.diagnosis-screen .screen-grid {
+  grid-template-columns: 1fr;
 }
 
 .metric,
