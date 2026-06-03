@@ -31,6 +31,7 @@ Local Android notes:
 Use this flow when updating and reinstalling the Android display app locally.
 
 For updating Pixel 10a without a USB connection, see [Android APK distribution notes](docs/android-apk-distribution.md).
+For the next distribution steps, see [Android distribution roadmap](docs/android-distribution-roadmap.md).
 
 Prerequisites:
 
