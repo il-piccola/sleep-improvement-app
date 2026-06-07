@@ -34,6 +34,7 @@ For updating Pixel 10a without a USB connection, see [Android APK distribution n
 For the next distribution steps, see [Android distribution roadmap](docs/android-distribution-roadmap.md).
 For the Google Play internal testing preparation plan, see [Android Play internal test plan](docs/android-play-internal-test-plan.md).
 For Play Console account and app setup checks, see [Android Play Console prerequisites](docs/android-play-console-prerequisites.md).
+For mobile distribution cost boundaries, see [Mobile distribution costs](docs/mobile-distribution-costs.md).
 
 Prerequisites:
 
