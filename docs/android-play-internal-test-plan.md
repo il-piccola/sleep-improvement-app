@@ -1,6 +1,10 @@
 # Android Play Internal Test Plan
 
-This note captures the next distribution plan after the Sleep Compass debug APK was successfully uploaded to Firebase App Distribution but was blocked on Pixel 10a by Google Play Protect during installation.
+This note captures the Google Play internal testing option after the Sleep Compass debug APK was successfully uploaded to Firebase App Distribution but was blocked on Pixel 10a by Google Play Protect during installation.
+
+As of 2026-06-08, this route is frozen because creating a Google Play Developer account requires a one-time US$25 registration fee. Do not proceed with Play Console setup, release signing, or AAB work until that cost is intentionally approved.
+
+Reference: [Get started with Play Console](https://support.google.com/googleplay/android-developer/answer/6112435)
 
 ## Current state
 
@@ -18,13 +22,19 @@ This note captures the next distribution plan after the Sleep Compass debug APK 
 
 Firebase App Distribution proved that the APK can be uploaded and assigned to a tester, but the Pixel 10a environment blocked installation before the update could be verified.
 
-For this device environment, Firebase App Distribution is not the strongest PC-free update route. The next practical route is Google Play internal testing, which is closer to Play Store-style delivery.
+For this device environment, Firebase App Distribution is not the strongest PC-free update route. Google Play internal testing is the next formal route, but it is currently on hold because it requires a paid Google Play Developer account.
 
-## Recommended next route
+Until that cost is approved, the practical fallback is:
 
-Move toward Google Play internal testing in a separate phase.
+1. Keep using the debug build already installed on Pixel 10a.
+2. When an update is needed, connect Pixel 10a to the PC and use `installDebug`.
+3. Revisit PC-free updates later through Google Play internal testing only if the developer account fee is worth it.
 
-The target route is:
+## Frozen route: Google Play internal testing
+
+Do not move toward Google Play internal testing yet.
+
+If this route is resumed later, the target route is:
 
 1. Create or confirm the Google Play Console app for `com.maya.sleepimprovement`.
 2. Prepare release signing.
@@ -36,9 +46,12 @@ The target route is:
 
 ## Required preparation
 
+These items are not active tasks right now. They are recorded only so the project can resume cleanly if Google Play internal testing becomes worth the fee.
+
 ### Google Play Console
 
 - Confirm the Google Play Developer account is ready.
+- Confirm the one-time US$25 developer registration fee is intentionally approved before paying.
 - Create a Play Console app if it does not already exist.
 - Use the package name `com.maya.sleepimprovement`.
 - Keep public release out of scope for now.
@@ -76,6 +89,7 @@ The target route is:
 
 ## What not to do yet
 
+- Do not pay the Google Play Developer registration fee until the route is explicitly approved.
 - Do not create a release keystore in this documentation-only step.
 - Do not build an AAB yet.
 - Do not publish to Google Play yet.
@@ -88,5 +102,6 @@ The target route is:
 
 - Existing Sleep Compass on Pixel 10a should not be uninstalled during planning.
 - The current ADB-installed debug build remains the fallback working app.
+- PC-free updates are frozen unless this route is intentionally resumed.
 - Any signing or Play Console work should be handled in a separate, explicit phase.
 - Public release is not part of the current scope.

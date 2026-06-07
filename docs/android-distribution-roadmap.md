@@ -67,7 +67,11 @@ Important notes:
 
 ## Later route: Google Play internal testing
 
-Google Play internal testing is the formal next step when Sleep Compass is ready for Play-style updates.
+Google Play internal testing is the formal next step when Sleep Compass is ready for Play-style updates, but this route is currently frozen.
+
+As of 2026-06-08, creating a Google Play Developer account requires a one-time US$25 registration fee. Do not proceed with this route until that cost is intentionally approved.
+
+Reference: [Get started with Play Console](https://support.google.com/googleplay/android-developer/answer/6112435)
 
 It can provide:
 
@@ -89,15 +93,17 @@ Likely requirements:
 Important notes:
 
 - This is heavier than debug APK distribution.
+- It has an upfront Google Play Developer account cost.
 - It should be treated as a separate phase.
 - Public release is not part of the current scope.
 
 ## Recommended order
 
 1. Short term: continue with named debug APKs through Google Drive or GitHub Releases.
-2. Next: use Firebase App Distribution to reduce manual APK handoff work.
-3. Later: prepare release signing, AAB, and Google Play internal testing.
-4. Public release: keep out of scope until privacy, support, and store requirements are ready.
+2. Firebase App Distribution: already tested; upload succeeded, but Pixel 10a installation was blocked by Play Protect.
+3. For now: keep using the installed debug build and update by USB `installDebug` only when needed.
+4. Later, if the US$25 developer registration fee is worth it: prepare release signing, AAB, and Google Play internal testing.
+5. Public release: keep out of scope until privacy, support, and store requirements are ready.
 
 ## Safety rules
 
