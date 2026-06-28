@@ -40,6 +40,10 @@ import {
   aggregateSleepWindowMetrics,
   getSleepWindowMetricTargetMetrics,
 } from '../lib/sleepWindowMetricAggregator.js'
+import {
+  getConfiguredSleepDayBoundaryHour,
+  parseSleepDayBoundaryHour,
+} from '../lib/sleepDayBoundary.js'
 import { isAuthorized, sendJson, sendSafeError } from '../lib/security.js'
 import { saveSleepRecords, SleepRecordSaveError } from '../lib/sleepRecords.js'
 import type { HealthMetricAuditSummary } from '../types/healthMetrics.js'
@@ -74,6 +78,7 @@ type DriveSyncOptions = {
   backfillHealthMetricsLimit: number
   backfillSleepWindowMetrics: boolean
   backfillSleepWindowMetricsLimit: number
+  boundaryHour: number
   metricStructureAudit: boolean
 }
 
@@ -141,6 +146,7 @@ export async function handleDriveSync(
         const backfillSave =
           shouldBackfillHealthMetrics || shouldBackfillSleepWindowMetrics
             ? await backfillProcessedDriveFileMetrics({
+                boundaryHour: options.boundaryHour,
                 file,
                 runId,
                 shouldBackfillHealthMetrics,
@@ -287,10 +293,12 @@ export async function handleDriveSync(
       sleepWindowMetricRejectedRowCount,
       sleepWindowMetricTargetMetrics: getSleepWindowMetricTargetMetrics(),
       sleepWindowMetricBackfillFileCount,
+      sleepDayBoundaryHour: options.boundaryHour,
     })
 
     sendJson(response, 200, {
       ok: true,
+      sleepDayBoundaryHour: options.boundaryHour,
       folderId,
       checkedFiles: files.length,
       listedFileCount: listedFiles.length,
@@ -328,6 +336,7 @@ export async function handleDriveSync(
       },
       sleepWindowMetrics: {
         status: sleepWindowMetricRejectedRowCount > 0 ? 'completed_with_warnings' : 'completed',
+        boundaryHour: options.boundaryHour,
         savedRecordCount: sleepWindowMetricSavedRecordCount,
         updatedRecordCount: sleepWindowMetricUpdatedRecordCount,
         skippedMetricCount: sleepWindowMetricSkippedMetricCount,
@@ -375,6 +384,7 @@ export async function handleDriveSync(
 }
 
 export function parseDriveSyncOptions(url: URL): DriveSyncOptions {
+  const boundaryHour = parseSleepDayBoundaryHour(url.searchParams.get('boundaryHour'))
   const auditProcessedMetrics = isEnabled(url.searchParams.get('auditProcessedMetrics'))
   const backfillHealthMetrics = isEnabled(url.searchParams.get('backfillHealthMetrics'))
   const backfillSleepWindowMetrics = isEnabled(
@@ -404,6 +414,7 @@ export function parseDriveSyncOptions(url: URL): DriveSyncOptions {
     backfillHealthMetricsLimit,
     backfillSleepWindowMetrics,
     backfillSleepWindowMetricsLimit,
+    boundaryHour,
     metricStructureAudit,
   }
 }
@@ -431,12 +442,14 @@ async function auditProcessedDriveFile(
 }
 
 async function backfillProcessedDriveFileMetrics({
+  boundaryHour,
   file,
   runId,
   shouldBackfillHealthMetrics,
   shouldBackfillSleepWindowMetrics,
   userId,
 }: {
+  boundaryHour: number
   file: Awaited<ReturnType<typeof listHealthAutoExportJsonFiles>>[number]
   runId: string
   shouldBackfillHealthMetrics: boolean
@@ -462,7 +475,13 @@ async function backfillProcessedDriveFileMetrics({
     ? await saveAggregatedHealthMetrics({ downloaded, isBackfill: true, runId, userId })
     : emptyHealthMetricSaveResult(false)
   const sleepWindowMetrics = shouldBackfillSleepWindowMetrics
-    ? await saveAggregatedSleepWindowMetrics({ downloaded, isBackfill: true, runId, userId })
+    ? await saveAggregatedSleepWindowMetrics({
+        boundaryHour,
+        downloaded,
+        isBackfill: true,
+        runId,
+        userId,
+      })
     : emptySleepWindowMetricSaveResult(false)
 
   return {
@@ -502,6 +521,7 @@ async function processDriveFile(
     })
     const aggregatedHealthMetrics = await saveAggregatedHealthMetrics({ downloaded, runId, userId })
     const aggregatedSleepWindowMetrics = await saveAggregatedSleepWindowMetrics({
+      boundaryHour: options.boundaryHour,
       downloaded,
       runId,
       sleepRecords: normalized.records,
@@ -600,12 +620,14 @@ async function saveAggregatedHealthMetrics({
 }
 
 async function saveAggregatedSleepWindowMetrics({
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
   downloaded,
   isBackfill = false,
   runId,
   sleepRecords,
   userId,
 }: {
+  boundaryHour?: number
   downloaded: Awaited<ReturnType<typeof downloadDriveJsonFile>>
   isBackfill?: boolean
   runId: string
@@ -621,6 +643,7 @@ async function saveAggregatedSleepWindowMetrics({
       userId,
     }).records
   const aggregated = aggregateSleepWindowMetrics({
+    boundaryHour,
     input: downloaded.value,
     runId,
     sleepRecords: normalized,

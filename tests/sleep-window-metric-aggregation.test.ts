@@ -10,6 +10,7 @@ function run(): void {
   testKeepsSourcesSeparate()
   testSkipsNonH2bMetrics()
   testRecordIdIsIdempotent()
+  testUsesConfigurableSleepDayBoundary()
   testDoesNotPersistRawRowsOrMetricData()
   console.log('sleep window metric aggregation test cases passed')
 }
@@ -57,6 +58,7 @@ function testAggregatesHeartRateWithinSleepWindow(): void {
   assert.equal(record.valueCount, 2)
   assert.equal(record.unit, 'bpm')
   assert.equal(record.sleepDay, '2026-05-24')
+  assert.equal(record.sleepDayBoundaryHour, 18)
   assert.equal(record.isMainSleep, true)
 }
 
@@ -196,6 +198,34 @@ function testRecordIdIsIdempotent(): void {
   const second = aggregateSleepWindowMetrics({ input, runId: 'run-b', sleepRecords, sourceFile: 'sample.json', userId: 'maya' })
 
   assert.equal(first.records[0].recordId, second.records[0].recordId)
+}
+
+function testUsesConfigurableSleepDayBoundary(): void {
+  const result = aggregateSleepWindowMetrics({
+    boundaryHour: 9,
+    input: {
+      metrics: [
+        {
+          name: 'respiratory_rate',
+          data: [
+            {
+              qty: 14,
+              start: '2026-05-25T08:30:00+09:00',
+              end: '2026-05-25T08:35:00+09:00',
+              source: 'Watch',
+            },
+          ],
+        },
+      ],
+    },
+    runId: 'run-a',
+    sleepRecords: [sleepRecord('a', '2026-05-25T08:00:00+09:00', '2026-05-25T09:30:00+09:00')],
+    sourceFile: 'sample.json',
+    userId: 'maya',
+  })
+
+  assert.equal(result.records[0].sleepDay, '2026-05-24')
+  assert.equal(result.records[0].sleepDayBoundaryHour, 9)
 }
 
 function testDoesNotPersistRawRowsOrMetricData(): void {

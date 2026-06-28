@@ -10,6 +10,7 @@ import {
 } from '../lib/viewModels.js'
 import { getSleepHealthContext } from '../lib/sleepHealthContext.js'
 import { sendJson, sendSafeError } from '../lib/security.js'
+import { parseSleepDayBoundaryHour } from '../lib/sleepDayBoundary.js'
 
 export async function handleImportStatus(
   request: IncomingMessage,
@@ -42,7 +43,15 @@ export async function handleSummaries(
 ): Promise<void> {
   try {
     const userId = await authorizeViewRequest(request)
-    sendJson(response, 200, await getSummaries(parseDays(url.searchParams.get('days')), userId))
+    sendJson(
+      response,
+      200,
+      await getSummaries(
+        parseDays(url.searchParams.get('days')),
+        userId,
+        parseSleepDayBoundaryHour(url.searchParams.get('boundaryHour')),
+      ),
+    )
   } catch (error) {
     sendViewError(response, error)
   }
@@ -58,7 +67,11 @@ export async function handleUnifiedTimeline(
     sendJson(
       response,
       200,
-      await getUnifiedTimeline(parseDays(url.searchParams.get('days')), userId),
+      await getUnifiedTimeline(
+        parseDays(url.searchParams.get('days')),
+        userId,
+        parseSleepDayBoundaryHour(url.searchParams.get('boundaryHour')),
+      ),
     )
   } catch (error) {
     sendViewError(response, error)
@@ -72,7 +85,15 @@ export async function handleInsights(
 ): Promise<void> {
   try {
     const userId = await authorizeViewRequest(request)
-    sendJson(response, 200, await getInsights(parseDays(url.searchParams.get('days')), userId))
+    sendJson(
+      response,
+      200,
+      await getInsights(
+        parseDays(url.searchParams.get('days')),
+        userId,
+        parseSleepDayBoundaryHour(url.searchParams.get('boundaryHour')),
+      ),
+    )
   } catch (error) {
     sendViewError(response, error)
   }
@@ -85,7 +106,15 @@ export async function handleSleepHealthContext(
 ): Promise<void> {
   try {
     const userId = await authorizeViewRequest(request)
-    sendJson(response, 200, await getSleepHealthContext(parseDays(url.searchParams.get('days')), userId))
+    sendJson(
+      response,
+      200,
+      await getSleepHealthContext(
+        parseDays(url.searchParams.get('days')),
+        userId,
+        parseSleepDayBoundaryHour(url.searchParams.get('boundaryHour')),
+      ),
+    )
   } catch (error) {
     sendViewError(response, error)
   }

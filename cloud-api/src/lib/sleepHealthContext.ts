@@ -1,6 +1,11 @@
 import { getDefaultUserId } from './batches.js'
 import { getFirestoreDb } from './firestore.js'
 import { getSummaries, getUnifiedTimeline, type DayModel, type SummaryView } from './viewModels.js'
+import {
+  getConfiguredSleepDayBoundaryHour,
+  isSleepWindowRecordBoundaryCompatible,
+  normalizeSleepDayBoundaryHour,
+} from './sleepDayBoundary.js'
 import type { HealthMetricRecordDocument } from '../types/firestore.js'
 
 export type DailyActivityMetrics = {
@@ -72,15 +77,19 @@ const HEALTH_METRIC_READ_LIMIT = 5000
 export async function getSleepHealthContext(
   days: number,
   userId = getDefaultUserId(),
-): Promise<{ days: SleepHealthDailyContext[] }> {
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
+): Promise<{ boundaryHour: number; days: SleepHealthDailyContext[] }> {
+  const effectiveBoundaryHour = normalizeSleepDayBoundaryHour(boundaryHour)
   const [summariesResult, timelineResult, healthMetricRecords] = await Promise.all([
-    getSummaries(days, userId),
-    getUnifiedTimeline(days, userId),
+    getSummaries(days, userId, effectiveBoundaryHour),
+    getUnifiedTimeline(days, userId, effectiveBoundaryHour),
     getRecentHealthMetricRecords(userId),
   ])
 
   return {
+    boundaryHour: effectiveBoundaryHour,
     days: buildSleepHealthDailyContexts({
+      boundaryHour: effectiveBoundaryHour,
       healthMetricRecords,
       summaries: summariesResult.days,
       timelineDays: timelineResult.days,
@@ -89,12 +98,16 @@ export async function getSleepHealthContext(
 }
 
 export function buildSleepHealthDailyContexts({
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
   healthMetricRecords,
   summaries,
   timelineDays,
-}: BuildContextInput): SleepHealthDailyContext[] {
+}: BuildContextInput & { boundaryHour?: number }): SleepHealthDailyContext[] {
   const dailyActivityByDate = buildDailyActivityMap(healthMetricRecords)
-  const sleepWindowBySleepDay = buildSleepWindowMetricMap(healthMetricRecords)
+  const sleepWindowBySleepDay = buildSleepWindowMetricMap(
+    healthMetricRecords,
+    normalizeSleepDayBoundaryHour(boundaryHour),
+  )
   const timelineByDate = new Map(timelineDays.map((day) => [day.date, day]))
 
   return summaries.map((summary) => {
@@ -186,6 +199,7 @@ function buildDailyActivityMap(
 
 function buildSleepWindowMetricMap(
   records: HealthMetricRecordDocument[],
+  boundaryHour: number,
 ): Map<string, SleepHealthDailyContext['sleepWindowMetrics']> {
   const buckets = new Map<
     string,
@@ -194,6 +208,10 @@ function buildSleepWindowMetricMap(
 
   for (const record of records) {
     if (record.aggregation !== 'sleep_window_summary' || !record.sleepDay) {
+      continue
+    }
+
+    if (!isSleepWindowRecordBoundaryCompatible(record.sleepDayBoundaryHour, boundaryHour)) {
       continue
     }
 

@@ -1,5 +1,10 @@
 import { getDefaultUserId } from './batches.js'
 import { getFirestoreDb, isFirestoreAuthError } from './firestore.js'
+import {
+  getConfiguredSleepDayBoundaryHour,
+  getSleepDayKeyForDate,
+  normalizeSleepDayBoundaryHour,
+} from './sleepDayBoundary.js'
 import type {
   DriveSyncRunDocument,
   IngestBatchDocument,
@@ -166,12 +171,19 @@ export async function getDriveSyncStatus(
   }
 }
 
-export async function getSummaries(days: number, userId = getDefaultUserId()): Promise<{
+export async function getSummaries(
+  days: number,
+  userId = getDefaultUserId(),
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
+): Promise<{
+  boundaryHour: number
   days: SummaryView[]
 }> {
-  const models = await getDayModels(days, userId)
+  const effectiveBoundaryHour = normalizeSleepDayBoundaryHour(boundaryHour)
+  const models = await getDayModels(days, userId, effectiveBoundaryHour)
 
   return {
+    boundaryHour: effectiveBoundaryHour,
     days: models.map((model) => {
       const main = model.blocks.find((block) => block.type === 'main') ?? null
       return {
@@ -187,18 +199,30 @@ export async function getSummaries(days: number, userId = getDefaultUserId()): P
   }
 }
 
-export async function getUnifiedTimeline(days: number, userId = getDefaultUserId()): Promise<{
+export async function getUnifiedTimeline(
+  days: number,
+  userId = getDefaultUserId(),
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
+): Promise<{
+  boundaryHour: number
   days: DayModel[]
 }> {
+  const effectiveBoundaryHour = normalizeSleepDayBoundaryHour(boundaryHour)
+
   return {
-    days: await getDayModels(days, userId),
+    boundaryHour: effectiveBoundaryHour,
+    days: await getDayModels(days, userId, effectiveBoundaryHour),
   }
 }
 
-export async function getInsights(days: number, userId = getDefaultUserId()): Promise<{
+export async function getInsights(
+  days: number,
+  userId = getDefaultUserId(),
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
+): Promise<{
   items: Array<{ id: string; title: string; description: string; priority: 'low' | 'medium' | 'high' }>
 }> {
-  const models = await getDayModels(days, userId)
+  const models = await getDayModels(days, userId, normalizeSleepDayBoundaryHour(boundaryHour))
   const latest = models[0]
 
   if (!latest) {
@@ -240,10 +264,14 @@ export async function getInsights(days: number, userId = getDefaultUserId()): Pr
   return { items }
 }
 
-async function getDayModels(days: number, userId: string): Promise<DayModel[]> {
+async function getDayModels(
+  days: number,
+  userId: string,
+  boundaryHour: number,
+): Promise<DayModel[]> {
   try {
     const records = await getRecentSleepRecords(days, userId)
-    return buildDayModels(records).slice(0, days)
+    return buildDayModels(records, boundaryHour).slice(0, days)
   } catch (error) {
     throw new ViewApiError(error)
   }
@@ -266,7 +294,11 @@ async function getRecentSleepRecords(days: number, userId: string): Promise<Slee
   return snapshot.docs.map((doc) => doc.data() as SleepRecordDocument)
 }
 
-function buildDayModels(records: SleepRecordDocument[]): DayModel[] {
+export function buildDayModels(
+  records: SleepRecordDocument[],
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
+): DayModel[] {
+  const effectiveBoundaryHour = normalizeSleepDayBoundaryHour(boundaryHour)
   const asleepRecords = records
     .filter((record) => isSleepStage(record.stage))
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime())
@@ -274,7 +306,7 @@ function buildDayModels(records: SleepRecordDocument[]): DayModel[] {
   const grouped = new Map<string, SleepBlockView[]>()
 
   for (const block of blocks) {
-    const key = getSleepDayKey(block.start)
+    const key = getSleepDayKeyForDate(block.start, effectiveBoundaryHour)
     const list = grouped.get(key) ?? []
     list.push(block)
     grouped.set(key, list)
@@ -347,18 +379,6 @@ function classifyBlocks(blocks: SleepBlockView[]): SleepBlockView[] {
 
     return { ...block, type }
   })
-}
-
-function getSleepDayKey(value: string): string {
-  const date = new Date(value)
-
-  if (date.getHours() < 18) {
-    date.setDate(date.getDate() - 1)
-  }
-
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate(),
-  ).padStart(2, '0')}`
 }
 
 function isSleepStage(stage: SleepRecordDocument['stage']): boolean {

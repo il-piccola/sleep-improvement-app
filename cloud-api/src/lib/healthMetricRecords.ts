@@ -63,6 +63,9 @@ async function saveHealthMetricRecordsWithoutTimeout(records: HealthMetricRecord
       granularity: record.granularity,
       ...(record.date ? { date: record.date } : {}),
       ...(record.sleepDay ? { sleepDay: record.sleepDay } : {}),
+      ...(record.sleepDayBoundaryHour !== undefined
+        ? { sleepDayBoundaryHour: record.sleepDayBoundaryHour }
+        : {}),
       ...(record.sleepBlockId ? { sleepBlockId: record.sleepBlockId } : {}),
       ...(record.sleepBlockType ? { sleepBlockType: record.sleepBlockType } : {}),
       ...(record.isMainSleep !== undefined ? { isMainSleep: record.isMainSleep } : {}),

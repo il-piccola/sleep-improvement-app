@@ -193,6 +193,7 @@ type CloudImportStatusPayload = {
 }
 
 type CloudTimelinePayload = {
+  boundaryHour?: number
   days?: Array<{
     date: string
     blocks: Array<{
@@ -226,6 +227,7 @@ type DriveSyncStatusPayload = {
 }
 
 type SleepHealthContextPayload = {
+  boundaryHour?: number
   days?: SleepHealthDailyContextView[]
 }
 
@@ -252,18 +254,21 @@ const LOCAL_IMPORT_SERVER_URL =
   `${window.location.protocol}//${window.location.hostname}:8787`
 const CLOUD_API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const FIREBASE_AUTH = getFirebaseAuth()
+const EMPTY_SLEEP_DATA: SleepDataFile = {
+  records: [],
+  warnings: [],
+}
 
 function App() {
   const [activeScreen, setActiveScreen] = useState<AppScreen>('dashboard')
-  const [sleepData, setSleepData] = useState<SleepDataFile>({
-    ...sampleSleepData,
-    warnings: [],
-  })
+  const [sleepData, setSleepData] = useState<SleepDataFile>(EMPTY_SLEEP_DATA)
   const [config, setConfig] = useState<AnalysisConfig>(loadStoredConfig)
   const [sourcePreferences, setSourcePreferences] = useState<SleepSourcePreferenceMap>(
     loadStoredSourcePreferences,
   )
-  const [fileStatus, setFileStatus] = useState('匿名サンプルを使用中')
+  const [fileStatus, setFileStatus] = useState(
+    CLOUD_API_BASE_URL ? 'Cloud Run APIから睡眠データを取得中です' : 'ローカル自動取り込みサーバーを確認中です',
+  )
   const [timelineView, setTimelineView] = useState<TimelineViewMode>('unified')
   const [localImportStatus, setLocalImportStatus] = useState<LocalImportStatus>({
     connected: false,
@@ -274,6 +279,20 @@ function App() {
   })
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUserInfo | null>(null)
   const firebaseAuthAvailable = Boolean(FIREBASE_AUTH)
+  const signInFromDashboard = async () => {
+    if (!FIREBASE_AUTH) {
+      setFileStatus('Firebase設定が見つかりません。')
+      setActiveScreen('settings')
+      return
+    }
+
+    try {
+      setFileStatus('Googleログインを確認しています')
+      await signInToApp(FIREBASE_AUTH)
+    } catch (error) {
+      setFileStatus(error instanceof Error ? error.message : 'ログインできませんでした。')
+    }
+  }
 
   const analysis = useMemo(() => {
     const rawBlocks = buildSleepBlocks(sleepData.records, config)
@@ -344,7 +363,7 @@ function App() {
 
     const refresh = async () => {
       const result = CLOUD_API_BASE_URL
-        ? await fetchCloudServerData(firebaseUser)
+        ? await fetchCloudServerData(firebaseUser, config.sleepDayBoundaryHour)
         : await fetchLocalServerData()
 
       if (cancelled) {
@@ -380,7 +399,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [firebaseUser])
+  }, [config.sleepDayBoundaryHour, firebaseUser])
 
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
@@ -488,6 +507,10 @@ function App() {
           importedAt={sleepData.generatedAt}
           localImportStatus={localImportStatus}
           metrics={analysis.todayMetrics}
+          firebaseAuthAvailable={firebaseAuthAvailable}
+          firebaseUser={firebaseUser}
+          onOpenSettings={() => setActiveScreen('settings')}
+          onSignIn={signInFromDashboard}
           summary={analysis.todaySummary}
           summaries={displaySummaries}
           sleepHealthContext={sleepHealthContext}
@@ -622,7 +645,10 @@ async function fetchLocalServerData(): Promise<{
   }
 }
 
-async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
+async function fetchCloudServerData(
+  user: FirebaseUserInfo | null,
+  boundaryHour: number,
+): Promise<{
   generatedAt?: string
   driveSyncStatus?: DriveSyncStatusPayload | null
   records: SleepRecord[]
@@ -656,15 +682,16 @@ async function fetchCloudServerData(user: FirebaseUserInfo | null): Promise<{
     const headers = {
       Authorization: `Bearer ${idToken}`,
     }
+    const boundaryQuery = `boundaryHour=${encodeURIComponent(String(boundaryHour))}`
     const [statusResponse, timelineResponse] = await Promise.all([
       fetch(`${CLOUD_API_BASE_URL}/api/import-status`, { headers }),
-      fetch(`${CLOUD_API_BASE_URL}/api/unified-timeline?days=30`, { headers }),
+      fetch(`${CLOUD_API_BASE_URL}/api/unified-timeline?days=30&${boundaryQuery}`, { headers }),
     ])
     const driveStatusResponse = await fetch(`${CLOUD_API_BASE_URL}/api/drive-sync-status`, {
       headers,
     })
     const sleepHealthContextResponse = await fetch(
-      `${CLOUD_API_BASE_URL}/api/sleep-health-context?days=30`,
+      `${CLOUD_API_BASE_URL}/api/sleep-health-context?days=30&${boundaryQuery}`,
       { headers },
     )
 
@@ -1097,8 +1124,12 @@ function TodaySleep({
   driveSyncStatus,
   importedAt,
   isFallbackSleepDay,
+  firebaseAuthAvailable,
+  firebaseUser,
   localImportStatus,
   metrics,
+  onOpenSettings,
+  onSignIn,
   summary,
   summaries,
   sleepHealthContext,
@@ -1109,8 +1140,12 @@ function TodaySleep({
   driveSyncStatus: DriveSyncStatusPayload | null
   importedAt?: string
   isFallbackSleepDay: boolean
+  firebaseAuthAvailable: boolean
+  firebaseUser: FirebaseUserInfo | null
   localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
+  onOpenSettings: () => void
+  onSignIn: () => Promise<void>
   summary: SleepDaySummary | null
   summaries: SleepDaySummary[]
   sleepHealthContext: SleepHealthContextState
@@ -1144,6 +1179,34 @@ function TodaySleep({
               <strong>{targetSleepDayKey}</strong>
               のデータが届くと、ここに今日の状態を表示します。
             </p>
+            {CLOUD_API_BASE_URL && (
+              <div className="drive-sync-mini warning">
+                <span>Cloud API表示</span>
+                <strong>
+                  {!firebaseAuthAvailable
+                    ? 'Firebase設定を確認してください'
+                    : firebaseUser
+                      ? '実データを取得中です'
+                      : 'Googleログインが必要です'}
+                </strong>
+                <p>
+                  {localImportStatus.lastError ??
+                    (firebaseUser
+                      ? '同期済みデータを読み込んでいます。少し待っても変わらない場合は再読み込みしてください。'
+                      : 'ログイン後、Google Drive同期済みの睡眠データを表示します。')}
+                </p>
+                <div className="settings-actions">
+                  {!firebaseUser && firebaseAuthAvailable && (
+                    <button className="secondary-button" onClick={() => void onSignIn()} type="button">
+                      Googleでログイン
+                    </button>
+                  )}
+                  <button className="secondary-button" onClick={onOpenSettings} type="button">
+                    設定を確認
+                  </button>
+                </div>
+              </div>
+            )}
             <CompactSyncStatus status={syncStatus} />
           </div>
           <div className="today-total">

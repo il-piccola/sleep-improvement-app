@@ -1,4 +1,9 @@
 import { createHash } from 'node:crypto'
+import {
+  getConfiguredSleepDayBoundaryHour,
+  getSleepDayKeyForDate,
+  normalizeSleepDayBoundaryHour,
+} from './sleepDayBoundary.js'
 import type { HealthMetricRecordDocument, SleepRecordDocument } from '../types/firestore.js'
 
 type RawRecord = Record<string, unknown>
@@ -9,6 +14,7 @@ type TargetMetricName = Extract<
 >
 
 type SleepWindowBlock = {
+  boundaryHour: number
   id: string
   start: string
   end: string
@@ -64,20 +70,23 @@ const NAP_MAX_MINUTES = 90
 const EVENING_START_HOUR = 16
 
 export function aggregateSleepWindowMetrics({
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
   input,
   runId,
   sleepRecords,
   sourceFile,
   userId,
 }: {
+  boundaryHour?: number
   input: unknown
   runId: string
   sleepRecords: SleepRecordDocument[]
   sourceFile: string
   userId: string
 }): SleepWindowMetricAggregationResult {
+  const effectiveBoundaryHour = normalizeSleepDayBoundaryHour(boundaryHour)
   const metrics = getMetrics(input)
-  const blocks = buildSleepWindowBlocks(sleepRecords)
+  const blocks = buildSleepWindowBlocks(sleepRecords, effectiveBoundaryHour)
 
   if (!metrics || blocks.length === 0) {
     return {
@@ -174,7 +183,10 @@ export function getSleepWindowMetricTargetMetrics(): TargetMetricName[] {
   return [...TARGET_METRICS]
 }
 
-function buildSleepWindowBlocks(records: SleepRecordDocument[]): SleepWindowBlock[] {
+function buildSleepWindowBlocks(
+  records: SleepRecordDocument[],
+  boundaryHour: number,
+): SleepWindowBlock[] {
   const sorted = records
     .filter((record) => isSleepStage(record.stage))
     .map((record) => ({
@@ -209,10 +221,11 @@ function buildSleepWindowBlocks(records: SleepRecordDocument[]): SleepWindowBloc
     const durationMinutes = Math.round((block.end - block.start) / 60_000)
     const isMainSleep = Boolean(longest && block.start === longest.start && block.end === longest.end)
     const type = getSleepBlockType({ durationMinutes, isMainSleep, startMs: block.start })
-    const sleepDay = getSleepDay(block.start)
+    const sleepDay = getSleepDayKeyForDate(block.start, boundaryHour)
 
     return {
-      id: createSleepBlockId({ end, sleepDay, start }),
+      id: createSleepBlockId({ boundaryHour, end, sleepDay, start }),
+      boundaryHour,
       start,
       end,
       sleepDay,
@@ -299,6 +312,7 @@ function toHealthMetricRecord({
     aggregation: 'sleep_window_summary',
     granularity: 'sleep_block',
     sleepDay: bucket.block.sleepDay,
+    sleepDayBoundaryHour: bucket.block.boundaryHour,
     sleepBlockId: bucket.block.id,
     sleepBlockType: bucket.block.type,
     isMainSleep: bucket.block.isMainSleep,
@@ -332,17 +346,6 @@ function getSleepBlockType(input: {
   return 'supplemental'
 }
 
-function getSleepDay(startMs: number): string {
-  const dateParts = getTokyoDateParts(new Date(startMs))
-  const boundaryDate = new Date(`${dateParts.date}T00:00:00+09:00`)
-
-  if (dateParts.hour < 18) {
-    boundaryDate.setUTCDate(boundaryDate.getUTCDate() - 1)
-  }
-
-  return formatTokyoDate(boundaryDate)
-}
-
 function getTokyoHour(value: number): number {
   return Number(
     new Intl.DateTimeFormat('en-US', {
@@ -351,27 +354,6 @@ function getTokyoHour(value: number): number {
       timeZone: 'Asia/Tokyo',
     }).format(new Date(value)),
   )
-}
-
-function getTokyoDateParts(date: Date): { date: string; hour: number } {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    day: '2-digit',
-    hour: '2-digit',
-    hour12: false,
-    month: '2-digit',
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-  }).formatToParts(date)
-  const year = parts.find((part) => part.type === 'year')?.value
-  const month = parts.find((part) => part.type === 'month')?.value
-  const day = parts.find((part) => part.type === 'day')?.value
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0)
-
-  return { date: `${year}-${month}-${day}`, hour }
-}
-
-function formatTokyoDate(date: Date): string {
-  return getTokyoDateParts(date).date
 }
 
 function parseHealthDate(value: string | undefined): Date | null {
@@ -448,9 +430,16 @@ function isSleepStage(stage: SleepRecordDocument['stage']): boolean {
   return stage === 'asleep' || stage.startsWith('asleep_')
 }
 
-function createSleepBlockId(input: { end: string; sleepDay: string; start: string }): string {
+function createSleepBlockId(input: {
+  boundaryHour: number
+  end: string
+  sleepDay: string
+  start: string
+}): string {
+  const boundaryKey = input.boundaryHour === 18 ? 'legacy' : `boundary:${input.boundaryHour}`
+
   return createHash('sha256')
-    .update([input.sleepDay, input.start, input.end].join('|'))
+    .update([boundaryKey, input.sleepDay, input.start, input.end].join('|'))
     .digest('hex')
     .slice(0, 32)
 }

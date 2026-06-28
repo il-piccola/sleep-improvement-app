@@ -7,6 +7,7 @@ function run(): void {
   testJoinsSleepAndHealthMetricsBySleepDay()
   testKeepsCalendarActivityDatesSeparateFromSleepDay()
   testSummarizesSleepWindowMetricsBySleepDay()
+  testFiltersSleepWindowMetricsByBoundaryHour()
   testHandlesMissingMetricsAndInsufficientData()
   testUsesOnlyAggregatedHealthMetricRecords()
   console.log('sleep health context test cases passed')
@@ -74,6 +75,22 @@ function testSummarizesSleepWindowMetricsBySleepDay(): void {
   assert.equal(heartRate?.totalValueCount, 4)
   assert.ok(heartRate?.mainSleepOnlySummary)
   assert.ok(heartRate?.allSleepBlocksSummary)
+}
+
+function testFiltersSleepWindowMetricsByBoundaryHour(): void {
+  const contexts = buildSleepHealthDailyContexts({
+    boundaryHour: 9,
+    healthMetricRecords: [
+      windowRecord('heart_rate', '2026-05-23', 'main', true, 'boundary-9', 9),
+      windowRecord('heart_rate', '2026-05-23', 'nap', false, 'legacy-18'),
+    ],
+    summaries: [summary('2026-05-23')],
+    timelineDays: [timeline('2026-05-23')],
+  })
+  const heartRate = contexts[0].sleepWindowMetrics.heart_rate
+
+  assert.equal(heartRate?.recordCount, 1)
+  assert.equal(heartRate?.blockCount, 1)
 }
 
 function testHandlesMissingMetricsAndInsufficientData(): void {
@@ -178,6 +195,7 @@ function windowRecord(
   sleepBlockType: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown',
   isMainSleep: boolean,
   sleepBlockId = `${metricName}-${sleepBlockType}`,
+  sleepDayBoundaryHour?: number,
 ): HealthMetricRecordDocument {
   return {
     recordId: `${metricName}-${sleepBlockId}`,
@@ -187,6 +205,7 @@ function windowRecord(
     aggregation: 'sleep_window_summary',
     granularity: 'sleep_block',
     sleepDay,
+    ...(sleepDayBoundaryHour !== undefined ? { sleepDayBoundaryHour } : {}),
     sleepBlockId,
     sleepBlockType,
     isMainSleep,

@@ -50,6 +50,7 @@ export type HealthMetricRecordDocument = {
   granularity: 'day' | 'sleep_block'
   date?: string
   sleepDay?: string
+  sleepDayBoundaryHour?: number
   sleepBlockId?: string
   sleepBlockType?: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
   isMainSleep?: boolean
@@ -126,4 +127,5 @@ export type DriveSyncRunDocument = {
   sleepWindowMetricRejectedRowCount?: number
   sleepWindowMetricTargetMetrics?: string[]
   sleepWindowMetricBackfillFileCount?: number
+  sleepDayBoundaryHour?: number
 }

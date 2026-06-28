@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict'
+import {
+  getSleepDayKeyForDate,
+  normalizeSleepDayBoundaryHour,
+} from '../cloud-api/src/lib/sleepDayBoundary.js'
+import { buildDayModels } from '../cloud-api/src/lib/viewModels.js'
+import type { SleepRecordDocument } from '../cloud-api/src/types/firestore.js'
+
+function run(): void {
+  testBoundaryDefinitionAcrossRepresentativeHours()
+  testBoundaryNormalization()
+  testViewModelsUseBoundaryHour()
+  console.log('cloud api sleep day boundary test cases passed')
+}
+
+function testBoundaryDefinitionAcrossRepresentativeHours(): void {
+  assert.equal(getSleepDayKeyForDate('2026-05-25T00:00:00+09:00', 0), '2026-05-25')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T05:59:00+09:00', 6), '2026-05-24')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T06:00:00+09:00', 6), '2026-05-25')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T08:59:00+09:00', 9), '2026-05-24')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T09:00:00+09:00', 9), '2026-05-25')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T12:59:00+09:00', 13), '2026-05-24')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T13:00:00+09:00', 13), '2026-05-25')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T17:59:00+09:00', 18), '2026-05-24')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T18:00:00+09:00', 18), '2026-05-25')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T22:59:00+09:00', 23), '2026-05-24')
+  assert.equal(getSleepDayKeyForDate('2026-05-25T23:00:00+09:00', 23), '2026-05-25')
+}
+
+function testBoundaryNormalization(): void {
+  assert.equal(normalizeSleepDayBoundaryHour(-1), 0)
+  assert.equal(normalizeSleepDayBoundaryHour(24), 23)
+  assert.equal(normalizeSleepDayBoundaryHour('13'), 13)
+  assert.equal(normalizeSleepDayBoundaryHour('not-a-number', 9), 9)
+}
+
+function testViewModelsUseBoundaryHour(): void {
+  const records = [
+    sleepRecord('before-9', '2026-05-25T08:30:00+09:00', '2026-05-25T09:15:00+09:00'),
+    sleepRecord('after-9', '2026-05-25T10:30:00+09:00', '2026-05-25T11:00:00+09:00'),
+  ]
+  const nineHourDays = buildDayModels(records, 9).map((day) => day.date)
+  const eighteenHourDays = buildDayModels(records, 18).map((day) => day.date)
+
+  assert.deepEqual(nineHourDays, ['2026-05-25', '2026-05-24'])
+  assert.deepEqual(eighteenHourDays, ['2026-05-24'])
+}
+
+function sleepRecord(id: string, start: string, end: string): SleepRecordDocument {
+  return {
+    recordId: id,
+    userId: 'maya',
+    batchId: 'batch',
+    start,
+    end,
+    durationMinutes: Math.round((Date.parse(end) - Date.parse(start)) / 60_000),
+    stage: 'asleep_core',
+    originalValue: 'Core',
+    sourceKey: 'apple_watch',
+    sourceFormat: 'health_auto_export_json',
+    sourceFile: 'sample.json',
+  }
+}
+
+run()
