@@ -205,6 +205,16 @@ type CloudTimelinePayload = {
       sourceLabels?: string[]
     }>
   }>
+  month?: string
+}
+
+type MonthTimelineState = {
+  error?: string | null
+  generatedAt?: string
+  isLoading: boolean
+  month: string
+  records: SleepRecord[]
+  warnings: string[]
 }
 
 type DriveSyncStatusPayload = {
@@ -270,6 +280,14 @@ function App() {
     CLOUD_API_BASE_URL ? 'Cloud Run APIから睡眠データを取得中です' : 'ローカル自動取り込みサーバーを確認中です',
   )
   const [timelineView, setTimelineView] = useState<TimelineViewMode>('unified')
+  const [timelineMonth, setTimelineMonth] = useState(getCurrentMonthKey)
+  const [timelineMonthPinned, setTimelineMonthPinned] = useState(false)
+  const [monthTimeline, setMonthTimeline] = useState<MonthTimelineState>({
+    isLoading: false,
+    month: getCurrentMonthKey(),
+    records: [],
+    warnings: [],
+  })
   const [localImportStatus, setLocalImportStatus] = useState<LocalImportStatus>({
     connected: false,
   })
@@ -341,6 +359,11 @@ function App() {
       todayActions,
     }
   }, [config, sleepData, sourcePreferences])
+  const latestAvailableMonth = analysis.latestSummary
+    ? getMonthKeyFromSleepDayKey(analysis.latestSummary.sleepDayKey)
+    : null
+  const selectedTimelineMonth =
+    timelineMonthPinned || !latestAvailableMonth ? timelineMonth : latestAvailableMonth
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(config))
@@ -401,6 +424,41 @@ function App() {
     }
   }, [config.sleepDayBoundaryHour, firebaseUser])
 
+  useEffect(() => {
+    if (!CLOUD_API_BASE_URL) {
+      return
+    }
+
+    let cancelled = false
+
+    const refreshMonth = async () => {
+      setMonthTimeline((current) => ({
+        ...current,
+        error: null,
+        isLoading: true,
+        month: selectedTimelineMonth,
+      }))
+
+      const result = await fetchCloudTimelineMonth(
+        firebaseUser,
+        config.sleepDayBoundaryHour,
+        selectedTimelineMonth,
+      )
+
+      if (cancelled) {
+        return
+      }
+
+      setMonthTimeline(result)
+    }
+
+    void refreshMonth()
+
+    return () => {
+      cancelled = true
+    }
+  }, [config.sleepDayBoundaryHour, firebaseUser, selectedTimelineMonth])
+
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
       return
@@ -426,8 +484,38 @@ function App() {
   }
 
   const displaySummaries = sortSleepSummariesDesc(analysis.summaries)
-  const displayRawSummaries = sortSleepSummariesDesc(analysis.rawSummaries)
-  const visibleSummaries = timelineView === 'unified' ? displaySummaries : displayRawSummaries
+  const monthVisibleSummaries = useMemo(() => {
+    const records = CLOUD_API_BASE_URL ? monthTimeline.records : sleepData.records
+    const rawBlocks = buildSleepBlocks(records, config)
+    const rawGroups = groupBySleepDay(rawBlocks, config)
+    const rawSummaries = rawGroups.map((group) => summarizeSleepDay(group, config))
+    const unifiedTimeline = buildUnifiedSleepTimeline(records, config, sourcePreferences)
+    const groups = groupBySleepDay(unifiedTimeline.blocks, config)
+    const summaries = groups.map((group) => summarizeSleepDay(group, config))
+    const selectedSummaries = timelineView === 'unified' ? summaries : rawSummaries
+
+    return filterSummariesByMonth(sortSleepSummariesDesc(selectedSummaries), selectedTimelineMonth)
+  }, [
+    config,
+    monthTimeline.records,
+    selectedTimelineMonth,
+    sleepData.records,
+    sourcePreferences,
+    timelineView,
+  ])
+  const monthTimelineStatus = CLOUD_API_BASE_URL
+    ? {
+        error: monthTimeline.error,
+        isLoading: monthTimeline.isLoading,
+      }
+    : {
+        error: null,
+        isLoading: false,
+      }
+  const handleTimelineMonthChange = (month: string) => {
+    setTimelineMonth(normalizeMonthInput(month))
+    setTimelineMonthPinned(true)
+  }
   const handleLocalRescan = async () => {
     const status = await requestLocalRescan()
     setLocalImportStatus(status)
@@ -522,7 +610,11 @@ function App() {
       {activeScreen === 'timeline' && (
         <SleepTimeline
           config={config}
-          summaries={visibleSummaries}
+          latestAvailableMonth={latestAvailableMonth}
+          monthStatus={monthTimelineStatus}
+          onMonthChange={handleTimelineMonthChange}
+          selectedMonth={timelineMonth}
+          summaries={monthVisibleSummaries}
           timelineView={timelineView}
           onTimelineViewChange={setTimelineView}
         />
@@ -531,7 +623,11 @@ function App() {
       {activeScreen === 'fragmentation' && (
         <FragmentationDetail
           config={config}
-          summaries={visibleSummaries}
+          latestAvailableMonth={latestAvailableMonth}
+          monthStatus={monthTimelineStatus}
+          onMonthChange={handleTimelineMonthChange}
+          selectedMonth={timelineMonth}
+          summaries={monthVisibleSummaries}
           timelineView={timelineView}
           onTimelineViewChange={setTimelineView}
         />
@@ -750,6 +846,62 @@ async function fetchCloudServerData(
         connected: false,
         lastError: error instanceof Error ? error.message : 'Cloud Run APIから取得できません。',
       },
+    }
+  }
+}
+
+async function fetchCloudTimelineMonth(
+  user: FirebaseUserInfo | null,
+  boundaryHour: number,
+  month: string,
+): Promise<MonthTimelineState> {
+  if (!FIREBASE_AUTH || !user) {
+    return {
+      error: 'ログイン後に表示します。',
+      isLoading: false,
+      month,
+      records: [],
+      warnings: [],
+    }
+  }
+
+  try {
+    const idToken = await getAppIdToken(FIREBASE_AUTH)
+
+    if (!idToken) {
+      throw new Error('Firebase ID Tokenを取得できませんでした。')
+    }
+
+    const query = new URLSearchParams({
+      boundaryHour: String(boundaryHour),
+      month,
+    })
+    const response = await fetch(`${CLOUD_API_BASE_URL}/api/unified-timeline?${query.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error('指定月のタイムラインを取得できません。')
+    }
+
+    const payload = (await response.json()) as CloudTimelinePayload
+
+    return {
+      generatedAt: new Date().toISOString(),
+      isLoading: false,
+      month: payload.month ?? month,
+      records: cloudTimelineToSleepRecords(payload),
+      warnings: [],
+    }
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : '指定月のタイムラインを取得できません。',
+      isLoading: false,
+      month,
+      records: [],
+      warnings: [],
     }
   }
 }
@@ -1929,12 +2081,20 @@ function AutoImportStatusPanel({
 
 function SleepTimeline({
   config,
+  latestAvailableMonth,
+  monthStatus,
+  onMonthChange,
   onTimelineViewChange,
+  selectedMonth,
   summaries,
   timelineView,
 }: {
   config: AnalysisConfig
+  latestAvailableMonth: string | null
+  monthStatus: { error?: string | null; isLoading: boolean }
+  onMonthChange: (month: string) => void
   onTimelineViewChange: (view: TimelineViewMode) => void
+  selectedMonth: string
   summaries: SleepDaySummary[]
   timelineView: TimelineViewMode
 }) {
@@ -1950,8 +2110,14 @@ function SleepTimeline({
           description={`${formatSleepDayBoundaryWindowLabel(config.sleepDayBoundaryHour)}の24時間バーで、主睡眠・仮眠・補助睡眠の並びを確認します。`}
         />
         <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+        <MonthSelector
+          latestAvailableMonth={latestAvailableMonth}
+          monthStatus={monthStatus}
+          onChange={onMonthChange}
+          value={selectedMonth}
+        />
         <EmptyState
-          title="この期間の睡眠データはまだありません"
+          title={`${formatMonthLabel(selectedMonth)}の睡眠データはまだありません`}
           description="Google Drive同期またはファイル読み込みが完了すると、日ごとの24時間バーがここに並びます。データ診断タブで同期状態を確認できます。"
           actionLabel="データ診断で同期状態を確認"
           illustrationSrc={sleepTimelineClock}
@@ -1968,8 +2134,14 @@ function SleepTimeline({
         description="日ごとの24時間バーを縦に並べています。細かいブロック一覧は各日の詳細から確認できます。"
       />
       <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+      <MonthSelector
+        latestAvailableMonth={latestAvailableMonth}
+        monthStatus={monthStatus}
+        onChange={onMonthChange}
+        value={selectedMonth}
+      />
       <SectionIntro
-        title="日ごとの24時間バー"
+        title={`${formatMonthLabel(selectedMonth)}の日ごとの24時間バー`}
         description={`${scaleText} の流れで、複数回の睡眠も同じ線上に残します。`}
       />
       <div className="sleep-day-boundary-strip">
@@ -2043,12 +2215,20 @@ function TimelineDayCard({
 
 function FragmentationDetail({
   config,
+  latestAvailableMonth,
+  monthStatus,
+  onMonthChange,
   onTimelineViewChange,
+  selectedMonth,
   summaries,
   timelineView,
 }: {
   config: AnalysisConfig
+  latestAvailableMonth: string | null
+  monthStatus: { error?: string | null; isLoading: boolean }
+  onMonthChange: (month: string) => void
   onTimelineViewChange: (view: TimelineViewMode) => void
+  selectedMonth: string
   summaries: SleepDaySummary[]
   timelineView: TimelineViewMode
 }) {
@@ -2060,9 +2240,15 @@ function FragmentationDetail({
         description="睡眠が何回に分かれているか、どのブロックを主睡眠候補として見ているかを確認します。"
       />
       <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+      <MonthSelector
+        latestAvailableMonth={latestAvailableMonth}
+        monthStatus={monthStatus}
+        onChange={onMonthChange}
+        value={selectedMonth}
+      />
       {summaries.length === 0 && (
         <EmptyState
-          title="分割睡眠データはまだありません"
+          title={`${formatMonthLabel(selectedMonth)}の分割睡眠データはまだありません`}
           description="データが届くと、睡眠が何回に分かれたか、主睡眠候補と短い睡眠の関係をここに表示します。"
           actionLabel="データ診断で同期状態を確認"
           illustrationSrc={sleepSplitClouds}
@@ -2853,6 +3039,55 @@ function DataViewToggle({
   )
 }
 
+function MonthSelector({
+  latestAvailableMonth,
+  monthStatus,
+  onChange,
+  value,
+}: {
+  latestAvailableMonth: string | null
+  monthStatus: { error?: string | null; isLoading: boolean }
+  onChange: (month: string) => void
+  value: string
+}) {
+  const previousMonth = shiftMonthKey(value, -1)
+  const nextMonth = shiftMonthKey(value, 1)
+
+  return (
+    <section className="month-selector" aria-label="表示月">
+      <div>
+        <strong>{formatMonthLabel(value)}</strong>
+        <p>
+          タイムラインと分割睡眠は、選択した睡眠日の月だけを表示します。
+          {monthStatus.isLoading ? ' 取得中です。' : ''}
+        </p>
+        {monthStatus.error && <p className="import-error">{monthStatus.error}</p>}
+      </div>
+      <div className="month-selector-controls">
+        <button onClick={() => onChange(previousMonth)} type="button">
+          前月
+        </button>
+        <input
+          aria-label="表示する年月"
+          max="9999-12"
+          min="2000-01"
+          onChange={(event) => onChange(event.target.value)}
+          type="month"
+          value={value}
+        />
+        <button onClick={() => onChange(nextMonth)} type="button">
+          翌月
+        </button>
+        {latestAvailableMonth && latestAvailableMonth !== value && (
+          <button className="secondary-button" onClick={() => onChange(latestAvailableMonth)} type="button">
+            最新月
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function TimelineBar({
   boundaryHour,
   summary,
@@ -3252,6 +3487,56 @@ function loadStoredConfig(): AnalysisConfig {
 
 function sortSleepSummariesDesc(summaries: SleepDaySummary[]): SleepDaySummary[] {
   return [...summaries].sort((left, right) => right.sleepDayKey.localeCompare(left.sleepDayKey))
+}
+
+function filterSummariesByMonth(summaries: SleepDaySummary[], month: string): SleepDaySummary[] {
+  const monthKey = normalizeMonthInput(month)
+
+  return summaries.filter((summary) => summary.sleepDayKey.startsWith(`${monthKey}-`))
+}
+
+function getCurrentMonthKey(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+
+  return `${year}-${month}`
+}
+
+function getMonthKeyFromSleepDayKey(sleepDayKey: string): string {
+  return normalizeMonthInput(sleepDayKey.slice(0, 7))
+}
+
+function normalizeMonthInput(value: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(value)
+
+  if (!match) {
+    return getCurrentMonthKey()
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return getCurrentMonthKey()
+  }
+
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`
+}
+
+function shiftMonthKey(value: string, offset: number): string {
+  const monthKey = normalizeMonthInput(value)
+  const [year, month] = monthKey.split('-').map(Number)
+  const shifted = new Date(year, month - 1 + offset, 1)
+
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`
+}
+
+function formatMonthLabel(value: string): string {
+  const monthKey = normalizeMonthInput(value)
+  const [year, month] = monthKey.split('-')
+
+  return `${year}年${Number(month)}月`
 }
 
 function getLatestSleepRecordTimestamp(records: SleepRecord[]): string | undefined {

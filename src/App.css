@@ -264,6 +264,7 @@
 .page-header,
 .section-intro,
 .data-view-toggle,
+.month-selector,
 .timeline-day-card {
   border: 1px solid var(--color-line);
   border-radius: 8px;
@@ -288,7 +289,8 @@
 
 .page-header p:not(.eyebrow),
 .section-intro p,
-.data-view-toggle p {
+.data-view-toggle p,
+.month-selector p {
   margin: 0;
   color: var(--color-muted);
   font-size: 16px;
@@ -341,6 +343,44 @@
   border-color: #aac5d6;
   background: var(--color-primary-soft);
   color: #173c55;
+}
+
+.month-selector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+}
+
+.month-selector strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--color-ink);
+  font-size: 17px;
+}
+
+.month-selector-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.month-selector input,
+.month-selector button {
+  min-height: 44px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.month-selector input {
+  min-width: 150px;
 }
 
 .status-badge,
@@ -2630,6 +2670,7 @@
 .page-header,
 .section-intro,
 .data-view-toggle,
+.month-selector,
 .today-hero,
 .morning-action,
 .today-actions-panel,
@@ -2671,6 +2712,8 @@
 .secondary-button,
 .diagnosis-view-tabs button,
 .data-view-toggle button,
+.month-selector button,
+.month-selector input,
 .timeline-view-toggle button,
 .pace-options button,
 .source-setting-controls select,
@@ -2686,6 +2729,7 @@
 .screen-tabs button.active,
 .diagnosis-view-tabs button.active,
 .data-view-toggle button.active,
+.month-selector button.active,
 .timeline-view-toggle button.active,
 .pace-options button.active {
   border-color: rgba(95, 90, 162, 0.26);
@@ -3286,6 +3330,7 @@
   .score-insight-grid,
   .trend-grid,
   .data-view-toggle,
+  .month-selector,
   .timeline-day-metrics,
   .management-metric-grid,
   .fragmentation-hero,
@@ -3318,6 +3363,18 @@
     min-width: 0;
     padding: 0 6px;
     font-size: 14px;
+  }
+
+  .month-selector-controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .month-selector input,
+  .month-selector .secondary-button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .tab-label-full {

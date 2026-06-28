@@ -68,6 +68,7 @@ const DEFAULT_DAYS = 30
 const MERGE_GAP_MINUTES = 30
 const NAP_MAX_MINUTES = 90
 const EVENING_START_HOUR = 16
+const TOKYO_UTC_OFFSET_HOURS = 9
 
 export function parseDays(value: string | null): number {
   const days = Number(value)
@@ -77,6 +78,27 @@ export function parseDays(value: string | null): number {
   }
 
   return Math.min(days, MAX_DAYS)
+}
+
+export function parseMonthKey(value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  const match = /^(\d{4})-(\d{2})$/.exec(value)
+
+  if (!match) {
+    return null
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null
+  }
+
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`
 }
 
 export async function getImportStatus(userId = getDefaultUserId()): Promise<{
@@ -215,6 +237,29 @@ export async function getUnifiedTimeline(
   }
 }
 
+export async function getUnifiedTimelineForMonth(
+  month: string,
+  userId = getDefaultUserId(),
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
+): Promise<{
+  boundaryHour: number
+  days: DayModel[]
+  month: string
+}> {
+  const monthKey = parseMonthKey(month) ?? getCurrentTokyoMonthKey()
+  const effectiveBoundaryHour = normalizeSleepDayBoundaryHour(boundaryHour)
+  const records = await getSleepRecordsForSleepDayMonth(monthKey, userId, effectiveBoundaryHour)
+  const days = buildDayModels(records, effectiveBoundaryHour).filter((day) =>
+    day.date.startsWith(`${monthKey}-`),
+  )
+
+  return {
+    boundaryHour: effectiveBoundaryHour,
+    days,
+    month: monthKey,
+  }
+}
+
 export async function getInsights(
   days: number,
   userId = getDefaultUserId(),
@@ -292,6 +337,62 @@ async function getRecentSleepRecords(days: number, userId: string): Promise<Slee
     .get()
 
   return snapshot.docs.map((doc) => doc.data() as SleepRecordDocument)
+}
+
+async function getSleepRecordsForSleepDayMonth(
+  month: string,
+  userId: string,
+  boundaryHour: number,
+): Promise<SleepRecordDocument[]> {
+  const range = getSleepDayMonthQueryRange(month, boundaryHour)
+  const snapshot = await getFirestoreDb()
+    .collection('users')
+    .doc(userId)
+    .collection('sleep_records')
+    .where('start', '>=', range.from)
+    .where('start', '<', range.to)
+    .orderBy('start', 'desc')
+    .limit(range.maxRecords)
+    .get()
+
+  return snapshot.docs.map((doc) => doc.data() as SleepRecordDocument)
+}
+
+export function getSleepDayMonthQueryRange(
+  month: string,
+  boundaryHour = getConfiguredSleepDayBoundaryHour(),
+): { from: string; maxRecords: number; to: string } {
+  const monthKey = parseMonthKey(month) ?? getCurrentTokyoMonthKey()
+  const [year, monthNumber] = monthKey.split('-').map(Number)
+  const effectiveBoundaryHour = normalizeSleepDayBoundaryHour(boundaryHour)
+  const nextMonth = monthNumber === 12 ? { month: 1, year: year + 1 } : { month: monthNumber + 1, year }
+  const from = toTokyoBoundaryIso(year, monthNumber, 1, effectiveBoundaryHour)
+  const to = toTokyoBoundaryIso(nextMonth.year, nextMonth.month, 1, effectiveBoundaryHour)
+  const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
+
+  return {
+    from,
+    to,
+    maxRecords: Math.max(1, daysInMonth + 2) * 120,
+  }
+}
+
+function getCurrentTokyoMonthKey(): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    month: '2-digit',
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+  }).formatToParts(new Date())
+  const year = parts.find((part) => part.type === 'year')?.value ?? '1970'
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01'
+
+  return `${year}-${month}`
+}
+
+function toTokyoBoundaryIso(year: number, month: number, day: number, boundaryHour: number): string {
+  return new Date(
+    Date.UTC(year, month - 1, day, normalizeSleepDayBoundaryHour(boundaryHour) - TOKYO_UTC_OFFSET_HOURS),
+  ).toISOString()
 }
 
 export function buildDayModels(

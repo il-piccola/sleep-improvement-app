@@ -3,12 +3,18 @@ import {
   getSleepDayKeyForDate,
   normalizeSleepDayBoundaryHour,
 } from '../cloud-api/src/lib/sleepDayBoundary.js'
-import { buildDayModels } from '../cloud-api/src/lib/viewModels.js'
+import {
+  buildDayModels,
+  getSleepDayMonthQueryRange,
+  parseMonthKey,
+} from '../cloud-api/src/lib/viewModels.js'
 import type { SleepRecordDocument } from '../cloud-api/src/types/firestore.js'
 
 function run(): void {
   testBoundaryDefinitionAcrossRepresentativeHours()
   testBoundaryNormalization()
+  testMonthParsing()
+  testMonthQueryRangeUsesBoundaryHour()
   testViewModelsUseBoundaryHour()
   console.log('cloud api sleep day boundary test cases passed')
 }
@@ -32,6 +38,24 @@ function testBoundaryNormalization(): void {
   assert.equal(normalizeSleepDayBoundaryHour(24), 23)
   assert.equal(normalizeSleepDayBoundaryHour('13'), 13)
   assert.equal(normalizeSleepDayBoundaryHour('not-a-number', 9), 9)
+}
+
+function testMonthParsing(): void {
+  assert.equal(parseMonthKey('2026-06'), '2026-06')
+  assert.equal(parseMonthKey('2026-6'), null)
+  assert.equal(parseMonthKey('2026-13'), null)
+  assert.equal(parseMonthKey('not-a-month'), null)
+}
+
+function testMonthQueryRangeUsesBoundaryHour(): void {
+  const sixHourRange = getSleepDayMonthQueryRange('2026-06', 6)
+  const thirteenHourRange = getSleepDayMonthQueryRange('2026-06', 13)
+
+  assert.equal(sixHourRange.from, '2026-05-31T21:00:00.000Z')
+  assert.equal(sixHourRange.to, '2026-06-30T21:00:00.000Z')
+  assert.equal(thirteenHourRange.from, '2026-06-01T04:00:00.000Z')
+  assert.equal(thirteenHourRange.to, '2026-07-01T04:00:00.000Z')
+  assert.equal(sixHourRange.maxRecords, 3840)
 }
 
 function testViewModelsUseBoundaryHour(): void {

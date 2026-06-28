@@ -6,7 +6,9 @@ import {
   getInsights,
   getSummaries,
   getUnifiedTimeline,
+  getUnifiedTimelineForMonth,
   parseDays,
+  parseMonthKey,
 } from '../lib/viewModels.js'
 import { getSleepHealthContext } from '../lib/sleepHealthContext.js'
 import { sendJson, sendSafeError } from '../lib/security.js'
@@ -64,14 +66,14 @@ export async function handleUnifiedTimeline(
 ): Promise<void> {
   try {
     const userId = await authorizeViewRequest(request)
+    const boundaryHour = parseSleepDayBoundaryHour(url.searchParams.get('boundaryHour'))
+    const month = parseMonthKey(url.searchParams.get('month'))
     sendJson(
       response,
       200,
-      await getUnifiedTimeline(
-        parseDays(url.searchParams.get('days')),
-        userId,
-        parseSleepDayBoundaryHour(url.searchParams.get('boundaryHour')),
-      ),
+      month
+        ? await getUnifiedTimelineForMonth(month, userId, boundaryHour)
+        : await getUnifiedTimeline(parseDays(url.searchParams.get('days')), userId, boundaryHour),
     )
   } catch (error) {
     sendViewError(response, error)
