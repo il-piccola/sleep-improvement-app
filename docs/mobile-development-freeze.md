@@ -56,14 +56,20 @@ Any future iOS work must first state the cost boundary and get explicit approval
 
 Continue improving the web app instead.
 
+Current completed web milestones:
+
+- O-8b Cloud API sleep-day boundary alignment has been implemented and deployed.
+- Month-based timeline and split-sleep views are available.
+- O-9 REM/Core/Deep sleep stage display is implemented, deployed, and documented.
+- O-8/O-9 documentation has been updated.
+
 Useful next candidates:
 
-- Web operation checks.
-- O-8b Cloud API sleepDay boundary review.
-- Data diagnosis improvements.
+- Web operation checks after new Health Auto Export JSON syncs.
+- Data diagnosis refinements based on real missing-data patterns.
+- Monthly view polish for timeline and split-sleep tabs.
 - Weekly summary design.
-- README and docs cleanup.
-- Gentle AI-assisted summaries only after the data layer is clear.
+- Gentle AI-assisted summaries only after the data layer remains stable in normal web operation.
 
 ## Safety rules
 
