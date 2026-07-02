@@ -29,6 +29,7 @@ AppleヘルスXMLも対応します。XML内の `Record` のうち、`type="HKCa
 ## 睡眠ステージの変換ルール
 
 アプリ内では、Apple Health互換の文字列を `value` として使います。
+O-9以降は、睡眠ブロック内のステージ差分を `stageSegments` として表示モデルにも保持します。これはCloud APIレスポンスやフロント表示用の派生データであり、元の睡眠レコード保存形式を変更するものではありません。
 
 変換ルール:
 
@@ -50,6 +51,17 @@ AppleヘルスXMLも対応します。XML内の `Record` のうち、`type="HKCa
 | `InBed` を含む | ベッド上の睡眠関連ブロック |
 | `Awake` を含む | 睡眠ブロック作成から除外 |
 | その他 | unknownとして保持 |
+
+表示時の扱い:
+
+| 正規化ステージ | 表示 |
+| --- | --- |
+| `asleep_rem` | レム |
+| `asleep_core` | コア |
+| `asleep_deep` | 深い睡眠 |
+| `asleep` / `asleep_unspecified` | 睡眠 |
+
+睡眠ステージはセルフモニタリング用の表示です。医療的な診断、原因断定、睡眠の良し悪しの保証には使いません。
 
 ## 分割睡眠分析に必要な必須フィールド
 
@@ -76,7 +88,7 @@ AppleヘルスXMLも対応します。XML内の `Record` のうち、`type="HKCa
 
 `durationMinutes` だけのデータも読み込み可能ですが、次の分析は参考値になります。
 
-- 18:00から翌18:00の睡眠日判定
+- 設定された睡眠日区切り時刻をまたぐ睡眠日判定
 - 夕方睡眠判定
 - 最終起床時刻
 - 睡眠中央時刻
@@ -139,6 +151,18 @@ Health Auto Export JSONで集計済みデータしか見つからない場合、
       "hasSource": true,
       "sourceKind": "present",
       "sourceName": "Apple Watch"
+    },
+    {
+      "id": "record-002",
+      "value": "HKCategoryValueSleepAnalysisAsleepREM",
+      "startDate": "2026-05-15T06:40:00+09:00",
+      "endDate": "2026-05-15T07:00:00+09:00",
+      "durationMinutes": 20,
+      "hasStartDate": true,
+      "hasEndDate": true,
+      "hasSource": true,
+      "sourceKind": "present",
+      "sourceName": "Apple Watch"
     }
   ]
 }
@@ -191,12 +215,13 @@ Health Auto Export JSONで集計済みデータしか見つからない場合、
 - 1日1回の睡眠を前提にしない
 - 1日の中の睡眠ブロックをすべて残す
 - 最長睡眠だけを見て他の睡眠を無視しない
-- 睡眠日は18:00から翌18:00で区切る
+- 睡眠日は設定された区切り時刻を基準に扱う
 - 90分未満は仮眠候補として扱う
 - 16:00以降、夜睡眠開始前に始まる睡眠は夕方睡眠として注意する
 - 判定値は設定から変更できるようにする
 - 集計済みデータしかない場合は警告を出す
 - source/sourceNameは存在する場合だけ使う
+- 睡眠ステージがある場合はREM/Core/Deepを表示に使うが、ステージがない睡眠データも破棄しない
 - 今日のデータがない場合は警告を出す
 - 診断名は出さず、「傾向」「目安」と表現する
 

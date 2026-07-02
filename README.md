@@ -1,6 +1,8 @@
 # Sleep Compass
 
-Sleep Compass is a self-hosted, cross-device sleep dashboard. It imports iPhone Health sleep data via Health Auto Export and Google Drive, then displays it on the web and Android. The project focuses on sync visibility, missing-data explanations, sleep-day boundaries, and gentle self-monitoring insights rather than medical diagnosis.
+Sleep Compass is a self-hosted, cross-device sleep dashboard. It imports iPhone Health sleep data via Health Auto Export and Google Drive, then displays it on the web and Android. The project focuses on sync visibility, missing-data explanations, configurable sleep-day boundaries, sleep stage visualization, and gentle self-monitoring insights rather than medical diagnosis.
+
+Current web features include month-based sleep views, timeline and split-sleep summaries, REM/Core/Deep sleep stage display when source data provides it, data diagnosis, and sync status visibility.
 
 ## Android display app verification
 

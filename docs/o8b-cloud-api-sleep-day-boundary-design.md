@@ -154,7 +154,7 @@ Changing the frontend setting alone can regroup raw sleep records immediately in
 
 However, sleep-window metrics for a non-18 boundary require matching derived records. If those are missing, sleep-health context may intentionally show fewer sleep-window metrics until a boundary-aware Drive sync/backfill creates them.
 
-No production Cloud Run deployment or Firestore backfill has been performed by this document.
+O-8b has been deployed to Cloud Run for the read-model and boundary-aware aggregation code path. A broad Firestore rewrite/backfill of existing derived records has not been performed.
 
 ## Test Coverage
 
