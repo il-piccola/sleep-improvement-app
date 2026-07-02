@@ -5,6 +5,7 @@ import { resolveSleepSource } from '../source/resolveSleepSource'
 type TimedRecord = {
   record: SleepRecord
   kind: SleepRecordKind
+  stage: NonNullable<SleepRecord['stage']>
   sourceKey: string
   sourceLabel: string
   start: Date | null
@@ -50,6 +51,7 @@ function toTimedRecord(record: SleepRecord): TimedRecord {
   return {
     record,
     kind: getSleepRecordKind(record.stage ?? record.value),
+    stage: getNormalizedSleepStage(record.stage ?? record.value),
     ...resolveSleepSource(record),
     start,
     end,
@@ -137,6 +139,7 @@ function createBlock(timedRecord: TimedRecord, index: number): SleepBlock {
     sourceLabels: [timedRecord.sourceLabel],
     recordKinds: [timedRecord.kind],
     values: [timedRecord.record.value],
+    stageSegments: createStageSegments(timedRecord),
     startDate: timedRecord.start?.toISOString() ?? null,
     endDate: timedRecord.end?.toISOString() ?? null,
     durationMinutes: timedRecord.durationMinutes,
@@ -150,6 +153,7 @@ function createBlock(timedRecord: TimedRecord, index: number): SleepBlock {
 function mergeIntoBlock(block: SleepBlock, timedRecord: TimedRecord): void {
   block.sourceRecordIds.push(timedRecord.record.id)
   block.values.push(timedRecord.record.value)
+  block.stageSegments.push(...createStageSegments(timedRecord))
 
   if (!block.sourceKeys.includes(timedRecord.sourceKey)) {
     block.sourceKeys.push(timedRecord.sourceKey)
@@ -171,6 +175,21 @@ function mergeIntoBlock(block: SleepBlock, timedRecord: TimedRecord): void {
   block.durationMinutes += timedRecord.durationMinutes
 }
 
+function createStageSegments(timedRecord: TimedRecord): SleepBlock['stageSegments'] {
+  if (!timedRecord.start || !timedRecord.end) {
+    return []
+  }
+
+  return [
+    {
+      durationMinutes: timedRecord.durationMinutes,
+      end: timedRecord.end.toISOString(),
+      stage: timedRecord.stage,
+      start: timedRecord.start.toISOString(),
+    },
+  ]
+}
+
 function parseDate(value: string | undefined): Date | null {
   if (!value) {
     return null
@@ -182,4 +201,38 @@ function parseDate(value: string | undefined): Date | null {
 
 function getMinutesFromMidnight(date: Date): number {
   return date.getHours() * 60 + date.getMinutes()
+}
+
+function getNormalizedSleepStage(value: string): NonNullable<SleepRecord['stage']> {
+  const normalized = value.toLowerCase()
+
+  if (normalized.includes('rem')) {
+    return 'asleep_rem'
+  }
+
+  if (normalized.includes('deep')) {
+    return 'asleep_deep'
+  }
+
+  if (normalized.includes('core')) {
+    return 'asleep_core'
+  }
+
+  if (normalized.includes('unspecified')) {
+    return 'asleep_unspecified'
+  }
+
+  if (value.includes('Awake') || normalized === 'awake') {
+    return 'awake'
+  }
+
+  if (value.includes('InBed') || normalized === 'in_bed') {
+    return 'in_bed'
+  }
+
+  if (value.includes('Asleep') || normalized.startsWith('asleep')) {
+    return 'asleep'
+  }
+
+  return 'asleep_unspecified'
 }

@@ -15,6 +15,7 @@ function run(): void {
   testBoundaryNormalization()
   testMonthParsing()
   testMonthQueryRangeUsesBoundaryHour()
+  testViewModelsExposeStageSegments()
   testViewModelsUseBoundaryHour()
   console.log('cloud api sleep day boundary test cases passed')
 }
@@ -70,7 +71,32 @@ function testViewModelsUseBoundaryHour(): void {
   assert.deepEqual(eighteenHourDays, ['2026-05-24'])
 }
 
-function sleepRecord(id: string, start: string, end: string): SleepRecordDocument {
+function testViewModelsExposeStageSegments(): void {
+  const records = [
+    sleepRecord('core', '2026-05-25T01:00:00+09:00', '2026-05-25T02:00:00+09:00', 'asleep_core'),
+    sleepRecord('rem', '2026-05-25T02:00:00+09:00', '2026-05-25T02:30:00+09:00', 'asleep_rem'),
+    sleepRecord('deep', '2026-05-25T02:30:00+09:00', '2026-05-25T03:00:00+09:00', 'asleep_deep'),
+  ]
+  const [day] = buildDayModels(records, 18)
+  const [block] = day.blocks
+
+  assert.equal(block.stageSegments.length, 3)
+  assert.deepEqual(
+    block.stageSegments.map((segment) => segment.stage),
+    ['asleep_core', 'asleep_rem', 'asleep_deep'],
+  )
+  assert.deepEqual(
+    block.stageSegments.map((segment) => segment.durationMinutes),
+    [60, 30, 30],
+  )
+}
+
+function sleepRecord(
+  id: string,
+  start: string,
+  end: string,
+  stage: SleepRecordDocument['stage'] = 'asleep_core',
+): SleepRecordDocument {
   return {
     recordId: id,
     userId: 'maya',
@@ -78,7 +104,7 @@ function sleepRecord(id: string, start: string, end: string): SleepRecordDocumen
     start,
     end,
     durationMinutes: Math.round((Date.parse(end) - Date.parse(start)) / 60_000),
-    stage: 'asleep_core',
+    stage,
     originalValue: 'Core',
     sourceKey: 'apple_watch',
     sourceFormat: 'health_auto_export_json',

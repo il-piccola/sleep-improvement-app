@@ -327,6 +327,17 @@ function createSingleRecordBlock(
     sourceLabels: [sourceLabel],
     recordKinds: ['inBed'],
     values: [record.value],
+    stageSegments:
+      start && end
+        ? [
+            {
+              durationMinutes,
+              end: end.toISOString(),
+              stage: 'in_bed',
+              start: start.toISOString(),
+            },
+          ]
+        : [],
     startDate: start?.toISOString() ?? null,
     endDate: end?.toISOString() ?? null,
     durationMinutes,

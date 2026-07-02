@@ -171,10 +171,25 @@ type TimelineSegment = {
   duration: string
   label: string
   left: number
+  stageSegments: Array<{
+    duration: string
+    label: string
+    left: number
+    stage: NonNullable<SleepRecord['stage']>
+    timeRange: string
+    tone: 'rem' | 'core' | 'deep' | 'sleep'
+    width: number
+  }>
+  stageSummary: string
   timeRange: string
   tone: 'main' | 'nap' | 'evening' | 'support'
   width: number
 }
+
+type StageSummaryInput = Array<{
+  durationMinutes: number
+  stage: NonNullable<SleepRecord['stage']>
+}>
 
 type TrendComparison = {
   averageBlockCount: number
@@ -203,6 +218,12 @@ type CloudTimelinePayload = {
       type: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
       sourceKeys?: string[]
       sourceLabels?: string[]
+      stageSegments?: Array<{
+        durationMinutes: number
+        end: string
+        stage: NonNullable<SleepRecord['stage']>
+        start: string
+      }>
     }>
   }>
   month?: string
@@ -908,13 +929,24 @@ async function fetchCloudTimelineMonth(
 
 function cloudTimelineToSleepRecords(payload: CloudTimelinePayload): SleepRecord[] {
   return (payload.days ?? []).flatMap((day) =>
-    day.blocks.map((block, index): SleepRecord => {
+    day.blocks.flatMap((block, index): SleepRecord[] => {
       const sourceKey = block.sourceKeys?.[0] ?? 'unknown_source:cloud_run_api'
       const sourceLabel = block.sourceLabels?.[0] ?? toSourceKeyDisplay(sourceKey)
+      const segments =
+        block.stageSegments && block.stageSegments.length > 0
+          ? block.stageSegments
+          : [
+              {
+                durationMinutes: block.durationMinutes,
+                end: block.end,
+                stage: 'asleep' as const,
+                start: block.start,
+              },
+            ]
 
-      return {
-        id: `cloud-${day.date}-${index}-${block.start}`,
-        value: 'asleep',
+      return segments.map((segment, segmentIndex): SleepRecord => ({
+        id: `cloud-${day.date}-${index}-${segmentIndex}-${segment.start}`,
+        value: segment.stage,
         sourceFormat: 'cloud_run_api',
         sourceFile: 'cloud_run_unified_timeline',
         sourceKey,
@@ -923,16 +955,16 @@ function cloudTimelineToSleepRecords(payload: CloudTimelinePayload): SleepRecord
         sourceKind: 'present',
         sourceLabel,
         originalValue: block.type,
-        start: block.start,
-        end: block.end,
-        startDate: block.start,
-        endDate: block.end,
-        stage: 'asleep',
-        durationMinutes: block.durationMinutes,
+        start: segment.start,
+        end: segment.end,
+        startDate: segment.start,
+        endDate: segment.end,
+        stage: normalizeTimelineStage(segment.stage),
+        durationMinutes: segment.durationMinutes,
         hasStartDate: true,
         hasEndDate: true,
         hasSource: true,
-      }
+      }))
     }),
   )
 }
@@ -1765,8 +1797,21 @@ function SleepTimeline24h({
             className={`timeline-segment ${segment.tone}`}
             key={segment.id}
             style={{ left: `${segment.left}%`, width: `${segment.width}%` }}
-            title={`${segment.label} ${segment.timeRange} ${segment.duration}`}
-          />
+            title={`${segment.label} ${segment.timeRange} ${segment.duration}${segment.stageSummary ? ` / ${segment.stageSummary}` : ''}`}
+          >
+            {segment.stageSegments.length > 0 && (
+              <div className="timeline-stage-strip" aria-hidden="true">
+                {segment.stageSegments.map((stageSegment) => (
+                  <span
+                    className={`timeline-stage-segment ${stageSegment.tone}`}
+                    key={`${segment.id}-${stageSegment.stage}-${stageSegment.left}-${stageSegment.width}`}
+                    style={{ left: `${stageSegment.left}%`, width: `${stageSegment.width}%` }}
+                    title={`${stageSegment.label} ${stageSegment.timeRange} ${stageSegment.duration}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         ))}
         {!hasBlocks && <span className="timeline-empty">表示できる睡眠ブロックがありません</span>}
       </div>
@@ -1789,12 +1834,14 @@ function SleepTimeline24h({
         <span className="evening">夕方睡眠</span>
         <span className="support">補助睡眠</span>
       </div>
+      <StageLegend />
       {hasBlocks && <div className="timeline-summary-list">
         {segments.map((segment) => (
           <div key={`${segment.id}-summary`}>
             <span>{segment.label}</span>
             <strong>{segment.timeRange}</strong>
             <small>{segment.duration}</small>
+            {segment.stageSummary && <em>{segment.stageSummary}</em>}
           </div>
         ))}
       </div>}
@@ -2316,6 +2363,7 @@ function FragmentationDayCard({
             <div className="block-row" key={block.id}>
               <span>{formatTimeRange(block)}</span>
               <strong>{formatMinutes(block.durationMinutes)}</strong>
+              <span>{formatStageSummary(block.stageSegments) || 'ステージ未取得'}</span>
               <span>{block.labels.map(toBlockLabel).join(' / ')}</span>
             </div>
           ))}
@@ -3111,8 +3159,21 @@ function TimelineBar({
             className={`timeline-segment ${segment.tone}`}
             key={segment.id}
             style={{ left: `${segment.left}%`, width: `${segment.width}%` }}
-            title={`${segment.label} ${segment.timeRange} ${segment.duration}`}
-          />
+            title={`${segment.label} ${segment.timeRange} ${segment.duration}${segment.stageSummary ? ` / ${segment.stageSummary}` : ''}`}
+          >
+            {segment.stageSegments.length > 0 && (
+              <div className="timeline-stage-strip" aria-hidden="true">
+                {segment.stageSegments.map((stageSegment) => (
+                  <span
+                    className={`timeline-stage-segment ${stageSegment.tone}`}
+                    key={`${segment.id}-${stageSegment.stage}-${stageSegment.left}-${stageSegment.width}`}
+                    style={{ left: `${stageSegment.left}%`, width: `${stageSegment.width}%` }}
+                    title={`${stageSegment.label} ${stageSegment.timeRange} ${stageSegment.duration}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         ))}
         {segments.length === 0 && <span className="timeline-empty">表示できる睡眠ブロックがありません</span>}
       </div>
@@ -3135,7 +3196,19 @@ function TimelineBar({
         <span className="evening">夕方睡眠</span>
         <span className="support">補助睡眠</span>
       </div>
+      <StageLegend compact />
     </section>
+  )
+}
+
+function StageLegend({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`stage-legend${compact ? ' compact' : ''}`}>
+      <span className="stage-rem">レム</span>
+      <span className="stage-core">コア</span>
+      <span className="stage-deep">深い睡眠</span>
+      <span className="stage-sleep">睡眠</span>
+    </div>
   )
 }
 
@@ -3676,18 +3749,122 @@ function getSleepTimelineSegments(
       const left = ((start - windowStart) / (windowEnd - windowStart)) * 100
       const width = Math.max(((end - start) / (windowEnd - windowStart)) * 100, 1.2)
       const tone = getTimelineSegmentTone(block)
+      const stageSegments = getStageTimelineSegments(block, start, end)
+      const stageSummary = formatStageSummary(block.stageSegments)
 
       return {
         id: block.id,
         duration: formatMinutes(block.durationMinutes),
         label: block.labels.map(toBlockLabel).join(' / ') || '睡眠',
         left,
+        stageSegments,
+        stageSummary,
         timeRange: `${formatClock(new Date(start))} - ${formatClock(new Date(end))}`,
         tone,
         width,
       }
     })
     .filter((segment): segment is TimelineSegment => segment !== null)
+}
+
+function getStageTimelineSegments(
+  block: ClassifiedSleepBlock,
+  blockStart: number,
+  blockEnd: number,
+): TimelineSegment['stageSegments'] {
+  const blockDuration = blockEnd - blockStart
+
+  if (blockDuration <= 0) {
+    return []
+  }
+
+  return block.stageSegments
+    .map((stageSegment) => {
+      const rawStart = new Date(stageSegment.start).getTime()
+      const rawEnd = new Date(stageSegment.end).getTime()
+      const start = Math.max(rawStart, blockStart)
+      const end = Math.min(rawEnd, blockEnd)
+
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+        return null
+      }
+
+      const stage = normalizeTimelineStage(stageSegment.stage)
+      const left = ((start - blockStart) / blockDuration) * 100
+      const width = Math.max(((end - start) / blockDuration) * 100, 0.8)
+
+      return {
+        duration: formatMinutes(Math.max(1, Math.round((end - start) / 60_000))),
+        label: getStageLabel(stage),
+        left,
+        stage,
+        timeRange: `${formatClock(new Date(start))} - ${formatClock(new Date(end))}`,
+        tone: getStageTone(stage),
+        width,
+      }
+    })
+    .filter((segment): segment is TimelineSegment['stageSegments'][number] => segment !== null)
+}
+
+function formatStageSummary(stageSegments: StageSummaryInput): string {
+  const totals = new Map<NonNullable<SleepRecord['stage']>, number>()
+
+  for (const segment of stageSegments) {
+    const stage = normalizeTimelineStage(segment.stage)
+    totals.set(stage, (totals.get(stage) ?? 0) + segment.durationMinutes)
+  }
+
+  return getStageDisplayOrder()
+    .map((stage) => {
+      const minutes = totals.get(stage) ?? 0
+      return minutes > 0 ? `${getStageLabel(stage)} ${formatMinutes(minutes)}` : null
+    })
+    .filter((item): item is string => Boolean(item))
+    .join(' / ')
+}
+
+function getStageDisplayOrder(): Array<NonNullable<SleepRecord['stage']>> {
+  return ['asleep_rem', 'asleep_core', 'asleep_deep', 'asleep', 'asleep_unspecified']
+}
+
+function getStageLabel(stage: NonNullable<SleepRecord['stage']>): string {
+  switch (stage) {
+    case 'asleep_rem':
+      return 'レム'
+    case 'asleep_core':
+      return 'コア'
+    case 'asleep_deep':
+      return '深い睡眠'
+    case 'asleep_unspecified':
+      return '睡眠'
+    case 'asleep':
+      return '睡眠'
+    case 'awake':
+      return '覚醒'
+    case 'in_bed':
+      return 'ベッド内'
+  }
+}
+
+function getStageTone(stage: NonNullable<SleepRecord['stage']>): TimelineSegment['stageSegments'][number]['tone'] {
+  if (stage === 'asleep_rem') return 'rem'
+  if (stage === 'asleep_core') return 'core'
+  if (stage === 'asleep_deep') return 'deep'
+  return 'sleep'
+}
+
+function normalizeTimelineStage(stage: string): NonNullable<SleepRecord['stage']> {
+  const normalized = stage.toLowerCase()
+
+  if (normalized.includes('rem')) return 'asleep_rem'
+  if (normalized.includes('core')) return 'asleep_core'
+  if (normalized.includes('deep')) return 'asleep_deep'
+  if (normalized.includes('unspecified')) return 'asleep_unspecified'
+  if (normalized === 'awake' || normalized.includes('awake')) return 'awake'
+  if (normalized === 'in_bed' || normalized.includes('inbed')) return 'in_bed'
+  if (normalized === 'asleep' || normalized.startsWith('asleep')) return 'asleep'
+
+  return 'asleep_unspecified'
 }
 
 function getTimelineSegmentTone(block: ClassifiedSleepBlock): TimelineSegment['tone'] {

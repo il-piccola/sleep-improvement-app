@@ -960,6 +960,10 @@ function testSleepStagesAreCounted() {
     supportCount: 0,
     eveningCount: 0,
   })
+  assert.deepEqual(
+    summary.classifiedBlocks[0].stageSegments.map((segment) => segment.stage),
+    ['asleep_core', 'asleep_deep', 'asleep_rem', 'asleep_unspecified'],
+  )
 }
 
 function testDataQuality() {

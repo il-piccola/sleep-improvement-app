@@ -1598,24 +1598,55 @@
   position: absolute;
   top: 7px;
   bottom: 7px;
+  overflow: hidden;
   min-width: 8px;
   border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36), 0 6px 14px rgba(50, 66, 92, 0.12);
 }
 
 .timeline-segment.main {
-  background: #315f7d;
+  background: linear-gradient(135deg, #325f7e 0%, #4f88a8 58%, #83b7cc 100%);
 }
 
 .timeline-segment.nap {
-  background: #6d73b7;
+  background: linear-gradient(135deg, #6d73b7 0%, #8a8ed2 56%, #b8b7ec 100%);
 }
 
 .timeline-segment.evening {
-  background: #c97945;
+  background: linear-gradient(135deg, #c97945 0%, #e0a066 55%, #f0c99a 100%);
 }
 
 .timeline-segment.support {
-  background: #6f8b79;
+  background: linear-gradient(135deg, #6f8b79 0%, #8fb09a 55%, #bfd4c3 100%);
+}
+
+.timeline-stage-strip {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.timeline-stage-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 3px;
+}
+
+.timeline-stage-segment.rem {
+  background: linear-gradient(135deg, #9f79dc 0%, #bd9cf1 58%, #e0cef8 100%);
+}
+
+.timeline-stage-segment.core {
+  background: linear-gradient(135deg, #5f9ed9 0%, #8ac2ef 58%, #c5e2fb 100%);
+}
+
+.timeline-stage-segment.deep {
+  background: linear-gradient(135deg, #304d8e 0%, #5f78bd 58%, #93a5d8 100%);
+}
+
+.timeline-stage-segment.sleep {
+  background: linear-gradient(135deg, #a8b8cc 0%, #c5d2e0 58%, #e4ebf2 100%);
 }
 
 .timeline-block-labels {
@@ -1686,19 +1717,57 @@
 }
 
 .timeline-legend .main::before {
-  background: #315f7d;
+  background: linear-gradient(135deg, #325f7e, #83b7cc);
 }
 
 .timeline-legend .nap::before {
-  background: #6d73b7;
+  background: linear-gradient(135deg, #6d73b7, #b8b7ec);
 }
 
 .timeline-legend .evening::before {
-  background: #c97945;
+  background: linear-gradient(135deg, #c97945, #f0c99a);
 }
 
 .timeline-legend .support::before {
-  background: #6f8b79;
+  background: linear-gradient(135deg, #6f8b79, #bfd4c3);
+}
+
+.stage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.stage-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #4c5551;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.stage-legend span::before {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  content: '';
+}
+
+.stage-legend .stage-rem::before {
+  background: linear-gradient(135deg, #9f79dc, #e0cef8);
+}
+
+.stage-legend .stage-core::before {
+  background: linear-gradient(135deg, #5f9ed9, #c5e2fb);
+}
+
+.stage-legend .stage-deep::before {
+  background: linear-gradient(135deg, #304d8e, #93a5d8);
+}
+
+.stage-legend .stage-sleep::before {
+  background: linear-gradient(135deg, #a8b8cc, #e4ebf2);
 }
 
 .timeline-summary-list {
@@ -1708,7 +1777,7 @@
 
 .timeline-summary-list div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto minmax(140px, 1fr);
   gap: 8px;
   align-items: center;
   padding: 10px 12px;
@@ -1724,6 +1793,13 @@
 .timeline-summary-list strong {
   color: #202225;
   white-space: nowrap;
+}
+
+.timeline-summary-list em {
+  color: #58605d;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .trend-grid {
@@ -2132,6 +2208,7 @@
 
 .block-row {
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .block-row strong {

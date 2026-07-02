@@ -19,6 +19,12 @@ export type SleepBlockView = {
   type: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
   sourceKeys: string[]
   sourceLabels: string[]
+  stageSegments: Array<{
+    stage: SleepRecordDocument['stage']
+    start: string
+    end: string
+    durationMinutes: number
+  }>
 }
 
 export type SummaryView = {
@@ -444,6 +450,7 @@ function mergeSleepRecords(records: SleepRecordDocument[]): SleepBlockView[] {
         previous.durationMinutes = Math.round(
           (new Date(previous.end).getTime() - new Date(previous.start).getTime()) / 60_000,
         )
+        previous.stageSegments.push(toStageSegment(record))
         addUnique(previous.sourceKeys, getSourceKey(record))
         addUnique(previous.sourceLabels, getSourceLabel(record))
         continue
@@ -457,10 +464,20 @@ function mergeSleepRecords(records: SleepRecordDocument[]): SleepBlockView[] {
       type: 'unknown',
       sourceKeys: [getSourceKey(record)],
       sourceLabels: [getSourceLabel(record)],
+      stageSegments: [toStageSegment(record)],
     })
   }
 
   return blocks
+}
+
+function toStageSegment(record: SleepRecordDocument): SleepBlockView['stageSegments'][number] {
+  return {
+    stage: record.stage,
+    start: record.start,
+    end: record.end,
+    durationMinutes: record.durationMinutes,
+  }
 }
 
 function classifyBlocks(blocks: SleepBlockView[]): SleepBlockView[] {

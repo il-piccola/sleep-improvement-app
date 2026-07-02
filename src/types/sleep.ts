@@ -69,6 +69,13 @@ export type SleepRecord = {
   sourceBundleId?: string
 }
 
+export type SleepStageSegment = {
+  durationMinutes: number
+  end: string
+  stage: NormalizedSleepStage
+  start: string
+}
+
 export type SleepBlock = {
   id: string
   sourceRecordIds: string[]
@@ -76,6 +83,7 @@ export type SleepBlock = {
   sourceLabels: string[]
   recordKinds: SleepRecordKind[]
   values: SleepRecordValue[]
+  stageSegments: SleepStageSegment[]
   startDate: string | null
   endDate: string | null
   durationMinutes: number
