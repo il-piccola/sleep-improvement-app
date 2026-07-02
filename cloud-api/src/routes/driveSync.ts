@@ -44,7 +44,7 @@ import {
   getConfiguredSleepDayBoundaryHour,
   parseSleepDayBoundaryHour,
 } from '../lib/sleepDayBoundary.js'
-import { isAuthorized, sendJson, sendSafeError } from '../lib/security.js'
+import { isAuthorizedByStaticTokenOrOidc, sendJson, sendSafeError } from '../lib/security.js'
 import { saveSleepRecords, SleepRecordSaveError } from '../lib/sleepRecords.js'
 import type { HealthMetricAuditSummary } from '../types/healthMetrics.js'
 
@@ -96,8 +96,18 @@ export async function handleDriveSync(
   token: string | undefined,
 ): Promise<void> {
   const expectedToken = process.env.DRIVE_SYNC_API_TOKEN?.trim() || token
+  const allowedSchedulerServiceAccount =
+    process.env.DRIVE_SYNC_SCHEDULER_SERVICE_ACCOUNT?.trim() || undefined
+  const schedulerAudience = process.env.DRIVE_SYNC_SCHEDULER_AUDIENCE?.trim() || undefined
+  const trustCloudRunIam = process.env.DRIVE_SYNC_TRUST_CLOUD_RUN_IAM === 'true'
 
-  if (!isAuthorized(request, expectedToken)) {
+  if (
+    !trustCloudRunIam &&
+    !(await isAuthorizedByStaticTokenOrOidc(request, expectedToken, {
+      allowedServiceAccountEmail: allowedSchedulerServiceAccount,
+      audience: schedulerAudience,
+    }))
+  ) {
     sendSafeError(response, 401, 'Unauthorized')
     return
   }
