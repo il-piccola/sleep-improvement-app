@@ -62,6 +62,7 @@ Current completed web milestones:
 - Month-based timeline and split-sleep views are available.
 - O-9 REM/Core/Deep sleep stage display is implemented, deployed, and documented.
 - O-8/O-9 documentation has been updated.
+- O-11 data import and sleep source settings consolidation has been implemented, deployed, and documented.
 
 Useful next candidates:
 

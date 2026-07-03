@@ -80,7 +80,6 @@ type AppScreen =
   | 'fragmentation'
   | 'actions'
   | 'settings'
-  | 'sources'
   | 'import'
 
 type TimelineViewMode = 'unified' | 'raw'
@@ -274,9 +273,8 @@ const screens: Array<{ id: AppScreen; label: string; shortLabel: string }> = [
   { id: 'fragmentation', label: '分割睡眠', shortLabel: '分割' },
   { id: 'actions', label: '改善アクション', shortLabel: '行動' },
   { id: 'diagnosis', label: 'データ診断', shortLabel: '診断' },
-  { id: 'import', label: '読み込み', shortLabel: '読込' },
+  { id: 'import', label: 'データ取り込み', shortLabel: '取込' },
   { id: 'settings', label: '設定', shortLabel: '設定' },
-  { id: 'sources', label: '睡眠ソース', shortLabel: 'ソース' },
 ]
 
 const SETTINGS_STORAGE_KEY = 'sleep-improvement.analysis-config'
@@ -669,20 +667,9 @@ function App() {
         />
       )}
 
-      {activeScreen === 'sources' && (
-        <SourceSettings
-          details={analysis.sourceDetails}
-          preferences={sourcePreferences}
-          onChange={setSourcePreferences}
-          onReset={() => {
-            setSourcePreferences({})
-            resetStoredSourcePreferences()
-          }}
-        />
-      )}
-
       {activeScreen === 'import' && (
         <FileImport
+          details={analysis.sourceDetails}
           fileStatus={fileStatus}
           onHealthAutoExportImported={(result) => {
             setSleepData(toSleepDataFile(result))
@@ -698,6 +685,12 @@ function App() {
               warnings: [],
             })
             setFileStatus('匿名サンプルを使用中')
+          }}
+          preferences={sourcePreferences}
+          onSourcePreferencesChange={setSourcePreferences}
+          onSourcePreferencesReset={() => {
+            setSourcePreferences({})
+            resetStoredSourcePreferences()
           }}
         />
       )}
@@ -2744,11 +2737,13 @@ function FirebaseUserPanel({
 
 function SourceSettings({
   details,
+  showHeader = true,
   preferences,
   onChange,
   onReset,
 }: {
   details: SleepSourceDetail[]
+  showHeader?: boolean
   preferences: SleepSourcePreferenceMap
   onChange: (preferences: SleepSourcePreferenceMap) => void
   onReset: () => void
@@ -2767,11 +2762,13 @@ function SourceSettings({
 
   return (
     <section className="settings-screen">
-      <PageHeader
-        eyebrow="睡眠ソース"
-        title="使うデータ元を確認する"
-        description="自動判定を目安に、どの睡眠データを優先するか調整できます。通常表示では使い方と注意点だけを見せます。"
-      />
+      {showHeader && (
+        <PageHeader
+          eyebrow="睡眠ソース"
+          title="使うデータ元を確認する"
+          description="自動判定を目安に、どの睡眠データを優先するか調整できます。通常表示では使い方と注意点だけを見せます。"
+        />
+      )}
       <Panel title="睡眠ソース設定">
         <p className="settings-copy">
           自動判定を目安にしつつ、どのソースを優先するか調整できます。変更すると統合タイムライン、分割睡眠、昼夜逆転の目安を再計算します。
@@ -2893,22 +2890,30 @@ function SourceSettings({
 }
 
 function FileImport({
+  details,
   fileStatus,
   onHealthAutoExportImported,
   onFileChange,
+  onSourcePreferencesChange,
+  onSourcePreferencesReset,
   onUseSample,
+  preferences,
 }: {
+  details: SleepSourceDetail[]
   fileStatus: string
   onHealthAutoExportImported: Parameters<typeof HealthAutoExportImportPanel>[0]['onImported']
   onFileChange: (file: File | undefined) => void
+  onSourcePreferencesChange: (preferences: SleepSourcePreferenceMap) => void
+  onSourcePreferencesReset: () => void
   onUseSample: () => void
+  preferences: SleepSourcePreferenceMap
 }) {
   return (
     <section className="import-screen">
       <PageHeader
-        eyebrow="読み込み"
-        title="手動確認・緊急取り込み"
-        description="通常運用はGoogle Drive同期で自動取り込みします。この画面は、ファイルの中身を確認したい時や緊急で手動取り込みしたい時に使います。"
+        eyebrow="データ取り込み"
+        title="取り込みと睡眠ソースを確認する"
+        description="通常運用はGoogle Drive同期で自動取り込みします。手動確認と、表示に使う睡眠ソースの設定をここで確認できます。"
       />
       <SectionIntro
         title="通常はGoogle Drive同期で十分です"
@@ -2917,36 +2922,43 @@ function FileImport({
       <HealthAutoExportImportPanel onImported={onHealthAutoExportImported} />
 
       <div className="screen-grid">
-      <Panel title="normalized JSON / AppleヘルスXMLを確認する">
-        <p className="settings-copy">
-          監査済みのnormalized JSONやAppleヘルスXMLを、ブラウザ内だけで読み込みます。通常運用では使わない補助ルートです。
-        </p>
-        <label className="file-drop">
-          <span>normalized JSON / AppleヘルスXML</span>
-          <input
-            accept="application/json,.json,.xml,text/xml,application/xml"
-            onChange={(event) => onFileChange(event.target.files?.[0])}
-            type="file"
-          />
-        </label>
-        <button className="secondary-button" onClick={onUseSample} type="button">
-          匿名サンプルに戻す
-        </button>
-      </Panel>
-      <Panel title="読み込み状態">
-        <p className="file-status">{fileStatus}</p>
-        <p className="muted">
-          ファイルは端末のブラウザ内で解析します。健康データを外部送信する処理はありません。
-        </p>
-        <DetailDisclosure title="対応ファイル形式">
-          <ul className="plain-list import-format-list">
-            <li>推奨: Google Drive同期されたHealth Auto Export JSON</li>
-            <li>手動確認: normalized-sleep-records.json</li>
-            <li>手動確認: AppleヘルスXML</li>
-          </ul>
-        </DetailDisclosure>
-      </Panel>
+        <Panel title="normalized JSON / AppleヘルスXMLを確認する">
+          <p className="settings-copy">
+            監査済みのnormalized JSONやAppleヘルスXMLを、ブラウザ内だけで読み込みます。通常運用では使わない補助ルートです。
+          </p>
+          <label className="file-drop">
+            <span>normalized JSON / AppleヘルスXML</span>
+            <input
+              accept="application/json,.json,.xml,text/xml,application/xml"
+              onChange={(event) => onFileChange(event.target.files?.[0])}
+              type="file"
+            />
+          </label>
+          <button className="secondary-button" onClick={onUseSample} type="button">
+            匿名サンプルに戻す
+          </button>
+        </Panel>
+        <Panel title="読み込み状態">
+          <p className="file-status">{fileStatus}</p>
+          <p className="muted">
+            ファイルは端末のブラウザ内で解析します。健康データを外部送信する処理はありません。
+          </p>
+          <DetailDisclosure title="対応ファイル形式">
+            <ul className="plain-list import-format-list">
+              <li>推奨: Google Drive同期されたHealth Auto Export JSON</li>
+              <li>手動確認: normalized-sleep-records.json</li>
+              <li>手動確認: AppleヘルスXML</li>
+            </ul>
+          </DetailDisclosure>
+        </Panel>
       </div>
+      <SourceSettings
+        details={details}
+        preferences={preferences}
+        showHeader={false}
+        onChange={onSourcePreferencesChange}
+        onReset={onSourcePreferencesReset}
+      />
     </section>
   )
 }
