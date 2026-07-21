@@ -3,6 +3,14 @@ import { getAuth } from 'firebase-admin/auth'
 import { getDefaultUserId } from './batches.js'
 import { ensureFirebaseAdminApp } from './firestore.js'
 
+type FirebaseIdTokenPayload = {
+  uid: string
+}
+
+type ViewAuthorizationOptions = {
+  verifyIdToken?: (idToken: string) => Promise<FirebaseIdTokenPayload>
+}
+
 export class ViewAuthError extends Error {
   status: 401 | 403
 
@@ -13,7 +21,10 @@ export class ViewAuthError extends Error {
   }
 }
 
-export async function authorizeViewRequest(request: IncomingMessage): Promise<string> {
+export async function authorizeViewRequest(
+  request: IncomingMessage,
+  options: ViewAuthorizationOptions = {},
+): Promise<string> {
   if (process.env.ALLOW_DEV_READ_WITHOUT_AUTH?.toLowerCase() === 'true') {
     return getDefaultUserId()
   }
@@ -27,8 +38,7 @@ export async function authorizeViewRequest(request: IncomingMessage): Promise<st
   let uid: string
 
   try {
-    ensureFirebaseAdminApp()
-    const decoded = await getAuth().verifyIdToken(idToken)
+    const decoded = await (options.verifyIdToken ?? verifyFirebaseIdToken)(idToken)
     uid = decoded.uid
   } catch {
     throw new ViewAuthError(401, 'Invalid or expired Firebase ID Token')
@@ -41,6 +51,12 @@ export async function authorizeViewRequest(request: IncomingMessage): Promise<st
   }
 
   return getDefaultUserId()
+}
+
+async function verifyFirebaseIdToken(idToken: string): Promise<FirebaseIdTokenPayload> {
+  ensureFirebaseAdminApp()
+  const decoded = await getAuth().verifyIdToken(idToken)
+  return { uid: decoded.uid }
 }
 
 function getBearerToken(request: IncomingMessage): string {

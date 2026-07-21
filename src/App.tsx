@@ -3,6 +3,7 @@ import './App.css'
 import sampleSleepData from './sample/anonymized-sleep-records.json'
 import {
   HealthAutoExportImportPanel,
+  type DriveSyncImportResult,
 } from './components/HealthAutoExportImportPanel'
 import type { HealthAutoExportImportResult } from './lib/importers/importTypes'
 import { buildSleepBlocks } from './lib/analysis/buildSleepBlocks'
@@ -315,6 +316,7 @@ function App() {
     days: [],
   })
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUserInfo | null>(null)
+  const [cloudDataRefreshNonce, setCloudDataRefreshNonce] = useState(0)
   const firebaseAuthAvailable = Boolean(FIREBASE_AUTH)
   const signInFromDashboard = async () => {
     if (!FIREBASE_AUTH) {
@@ -441,7 +443,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [config.sleepDayBoundaryHour, firebaseUser])
+  }, [cloudDataRefreshNonce, config.sleepDayBoundaryHour, firebaseUser])
 
   useEffect(() => {
     if (!CLOUD_API_BASE_URL) {
@@ -476,7 +478,54 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [config.sleepDayBoundaryHour, firebaseUser, selectedTimelineMonth])
+  }, [cloudDataRefreshNonce, config.sleepDayBoundaryHour, firebaseUser, selectedTimelineMonth])
+
+  const handleDriveSyncFromImport = async (): Promise<DriveSyncImportResult> => {
+    if (!CLOUD_API_BASE_URL || !FIREBASE_AUTH || !firebaseUser) {
+      throw new Error('Google Driveから取り込むにはログインが必要です。')
+    }
+
+    const idToken = await getAppIdToken(FIREBASE_AUTH)
+
+    if (!idToken) {
+      throw new Error('Firebase ID Tokenを取得できませんでした。')
+    }
+
+    const query = new URLSearchParams({
+      boundaryHour: String(config.sleepDayBoundaryHour),
+    })
+    const response = await fetch(`${CLOUD_API_BASE_URL}/api/drive-sync?${query.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+      method: 'POST',
+    })
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          checkedFiles?: number
+          error?: string
+          failedFiles?: number
+          processedFiles?: number
+          skippedAlreadyProcessed?: number
+        }
+      | null
+
+    if (!response.ok) {
+      throw new Error(payload?.error ?? 'Google Drive同期を実行できませんでした。')
+    }
+
+    const syncResult = {
+      checkedFiles: payload?.checkedFiles ?? 0,
+      failedFiles: payload?.failedFiles ?? 0,
+      processedFiles: payload?.processedFiles ?? 0,
+      skippedAlreadyProcessed: payload?.skippedAlreadyProcessed ?? 0,
+    }
+    setFileStatus(
+      `Google Driveを確認しました。新規 ${syncResult.processedFiles}件、処理済み ${syncResult.skippedAlreadyProcessed}件`,
+    )
+    setCloudDataRefreshNonce((current) => current + 1)
+    return syncResult
+  }
 
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
@@ -671,6 +720,8 @@ function App() {
         <FileImport
           details={analysis.sourceDetails}
           fileStatus={fileStatus}
+          canSyncFromDrive={Boolean(CLOUD_API_BASE_URL && FIREBASE_AUTH && firebaseUser)}
+          onDriveSync={handleDriveSyncFromImport}
           onHealthAutoExportImported={(result) => {
             setSleepData(toSleepDataFile(result))
             setFileStatus(
@@ -2890,8 +2941,10 @@ function SourceSettings({
 }
 
 function FileImport({
+  canSyncFromDrive,
   details,
   fileStatus,
+  onDriveSync,
   onHealthAutoExportImported,
   onFileChange,
   onSourcePreferencesChange,
@@ -2899,8 +2952,10 @@ function FileImport({
   onUseSample,
   preferences,
 }: {
+  canSyncFromDrive: boolean
   details: SleepSourceDetail[]
   fileStatus: string
+  onDriveSync: () => Promise<DriveSyncImportResult>
   onHealthAutoExportImported: Parameters<typeof HealthAutoExportImportPanel>[0]['onImported']
   onFileChange: (file: File | undefined) => void
   onSourcePreferencesChange: (preferences: SleepSourcePreferenceMap) => void
@@ -2919,7 +2974,11 @@ function FileImport({
         title="通常はGoogle Drive同期で十分です"
         description="Health Auto ExportがGoogle Driveへ保存したJSONは、Cloud Runが定期的に取得します。ここでファイルを選ぶ必要があるのは、手元のファイルを確認したい時だけです。"
       />
-      <HealthAutoExportImportPanel onImported={onHealthAutoExportImported} />
+      <HealthAutoExportImportPanel
+        canSyncFromDrive={canSyncFromDrive}
+        onDriveSync={onDriveSync}
+        onImported={onHealthAutoExportImported}
+      />
 
       <div className="screen-grid">
         <Panel title="normalized JSON / AppleヘルスXMLを確認する">

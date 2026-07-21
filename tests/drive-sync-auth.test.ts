@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import type { IncomingMessage } from 'node:http'
 import { isAuthorizedByStaticTokenOrOidc } from '../cloud-api/src/lib/security.js'
+import { authorizeViewRequest } from '../cloud-api/src/lib/viewAuth.js'
 
 async function run(): Promise<void> {
   await testStaticTokenRemainsAuthorized()
@@ -9,6 +10,54 @@ async function run(): Promise<void> {
   await testSchedulerOidcRejectsDifferentEmail()
   await testSchedulerOidcRejectsUnverifiedEmail()
   await testDefaultAudienceUsesPathWithoutQuery()
+  await testAllowedFirebaseUserCanAuthorizeDriveSync()
+  await testUnlistedFirebaseUserCannotAuthorizeDriveSync()
+}
+
+async function testAllowedFirebaseUserCanAuthorizeDriveSync(): Promise<void> {
+  const originalAllowedUids = process.env.ALLOWED_FIREBASE_UIDS
+  const originalDevRead = process.env.ALLOW_DEV_READ_WITHOUT_AUTH
+  process.env.ALLOWED_FIREBASE_UIDS = 'maya-uid'
+  delete process.env.ALLOW_DEV_READ_WITHOUT_AUTH
+
+  try {
+    const userId = await authorizeViewRequest(request('firebase-token'), {
+      verifyIdToken: async () => ({ uid: 'maya-uid' }),
+    })
+    assert.equal(userId, 'maya')
+  } finally {
+    restoreEnv('ALLOWED_FIREBASE_UIDS', originalAllowedUids)
+    restoreEnv('ALLOW_DEV_READ_WITHOUT_AUTH', originalDevRead)
+  }
+}
+
+async function testUnlistedFirebaseUserCannotAuthorizeDriveSync(): Promise<void> {
+  const originalAllowedUids = process.env.ALLOWED_FIREBASE_UIDS
+  const originalDevRead = process.env.ALLOW_DEV_READ_WITHOUT_AUTH
+  process.env.ALLOWED_FIREBASE_UIDS = 'maya-uid'
+  delete process.env.ALLOW_DEV_READ_WITHOUT_AUTH
+
+  try {
+    await assert.rejects(
+      () =>
+        authorizeViewRequest(request('firebase-token'), {
+          verifyIdToken: async () => ({ uid: 'other-uid' }),
+        }),
+      { message: 'Firebase UID is not allowed to read this data' },
+    )
+  } finally {
+    restoreEnv('ALLOWED_FIREBASE_UIDS', originalAllowedUids)
+    restoreEnv('ALLOW_DEV_READ_WITHOUT_AUTH', originalDevRead)
+  }
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name]
+    return
+  }
+
+  process.env[name] = value
 }
 
 async function testStaticTokenRemainsAuthorized(): Promise<void> {

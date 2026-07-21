@@ -43,6 +43,7 @@ The Cloud API now supports two Drive sync authorization paths:
 
 1. Existing static bearer token auth for manual/admin sync.
 2. Scheduler OIDC / Cloud Run IAM trust for the private sync service.
+3. Firebase ID Token auth for an allowed web user who explicitly starts a Drive sync from the data import screen.
 
 The route behavior remains the same after authorization:
 
@@ -90,6 +91,15 @@ If the sync time does not update, check:
 - Cloud Scheduler run logs
 - private Cloud Run sync service request logs
 - Google Drive folder sharing and Drive API access
+
+## User-Triggered Drive Sync
+
+The data import screen can also start an immediate Drive sync without selecting a local JSON file. This is an explicit action, not an automatic sync when the screen opens.
+
+- The button checks the configured Google Drive folder.
+- Only files that have not already been processed are normalized and saved.
+- The same Firebase UID allowlist used for reading sleep data authorizes this action.
+- The browser never receives the static Drive sync token or the Drive folder ID.
 
 ## Safety Notes
 

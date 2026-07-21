@@ -46,6 +46,7 @@ import {
 } from '../lib/sleepDayBoundary.js'
 import { isAuthorizedByStaticTokenOrOidc, sendJson, sendSafeError } from '../lib/security.js'
 import { saveSleepRecords, SleepRecordSaveError } from '../lib/sleepRecords.js'
+import { authorizeViewRequest } from '../lib/viewAuth.js'
 import type { HealthMetricAuditSummary } from '../types/healthMetrics.js'
 
 type DriveSyncFileResult = {
@@ -101,13 +102,16 @@ export async function handleDriveSync(
   const schedulerAudience = process.env.DRIVE_SYNC_SCHEDULER_AUDIENCE?.trim() || undefined
   const trustCloudRunIam = process.env.DRIVE_SYNC_TRUST_CLOUD_RUN_IAM === 'true'
 
-  if (
-    !trustCloudRunIam &&
-    !(await isAuthorizedByStaticTokenOrOidc(request, expectedToken, {
+  const isStaticTokenOrSchedulerAuthorized =
+    trustCloudRunIam ||
+    (await isAuthorizedByStaticTokenOrOidc(request, expectedToken, {
       allowedServiceAccountEmail: allowedSchedulerServiceAccount,
       audience: schedulerAudience,
     }))
-  ) {
+  const isAuthorizedFirebaseUser =
+    !isStaticTokenOrSchedulerAuthorized && (await isAuthorizedFirebaseUserForDriveSync(request))
+
+  if (!isStaticTokenOrSchedulerAuthorized && !isAuthorizedFirebaseUser) {
     sendSafeError(response, 401, 'Unauthorized')
     return
   }
@@ -306,7 +310,7 @@ export async function handleDriveSync(
       sleepDayBoundaryHour: options.boundaryHour,
     })
 
-    sendJson(response, 200, {
+    const responseBody = {
       ok: true,
       sleepDayBoundaryHour: options.boundaryHour,
       folderId,
@@ -371,7 +375,18 @@ export async function handleDriveSync(
         sleepWindowMetricSavedRecordCount: result.sleepWindowMetricSavedRecordCount,
         sleepWindowMetricUpdatedRecordCount: result.sleepWindowMetricUpdatedRecordCount,
       })),
-    })
+    }
+
+    if (isAuthorizedFirebaseUser) {
+      sendJson(response, 200, {
+        ...responseBody,
+        files: undefined,
+        folderId: undefined,
+      })
+      return
+    }
+
+    sendJson(response, 200, responseBody)
   } catch (error) {
     if (
       error instanceof FirestoreSaveError ||
@@ -390,6 +405,15 @@ export async function handleDriveSync(
         ? error.message
         : 'Google DriveからHealth Auto Export JSONを同期できませんでした。'
     sendSafeError(response, 500, message)
+  }
+}
+
+async function isAuthorizedFirebaseUserForDriveSync(request: IncomingMessage): Promise<boolean> {
+  try {
+    await authorizeViewRequest(request)
+    return true
+  } catch {
+    return false
   }
 }
 
