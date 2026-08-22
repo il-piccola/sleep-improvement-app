@@ -1,0 +1,384 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sleep-compass:processed-data:1.0.0",
+  "title": "Sleep Compass O-12 Processed Data Contract",
+  "description": "O-12b PREPARATION schema definitions. Final approval waits for O-12a completion.",
+  "$defs": {
+    "DatasetDescriptor": {
+      "type": "object",
+      "required": ["name", "path", "mediaType", "recordType", "recordCount", "byteLength", "sha256"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "mediaType": { "type": "string", "minLength": 1 },
+        "recordType": { "type": "string", "minLength": 1 },
+        "recordCount": { "type": "integer", "minimum": 0 },
+        "byteLength": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+      }
+    },
+    "ProcessingConfig": {
+      "type": "object",
+      "required": [
+        "timeZone",
+        "sleepDayBoundaryHour",
+        "mergeGapMinutes",
+        "napCandidateMaxMinutes",
+        "eveningSleepStartHour",
+        "eveningSleepEndHour",
+        "mainSleepRule",
+        "sourceIntegrationPolicyVersion"
+      ],
+      "properties": {
+        "timeZone": { "type": "string", "minLength": 1 },
+        "sleepDayBoundaryHour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "mergeGapMinutes": { "type": "number", "minimum": 0 },
+        "napCandidateMaxMinutes": { "type": "number", "exclusiveMinimum": 0 },
+        "eveningSleepStartHour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "eveningSleepEndHour": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "mainSleepRule": { "type": "string", "const": "longest_block_per_sleep_day" },
+        "sourceIntegrationPolicyVersion": { "type": "string", "minLength": 1 },
+        "fullDuplicateOverlapRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "partialOverlapRatio": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "Manifest": {
+      "type": "object",
+      "required": [
+        "schemaId",
+        "schemaVersion",
+        "snapshotId",
+        "processorVersion",
+        "generatedAt",
+        "processingConfig",
+        "identityPolicyVersion",
+        "datasets"
+      ],
+      "properties": {
+        "schemaId": { "type": "string", "const": "sleep-compass.processed-data" },
+        "schemaVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "snapshotId": { "type": "string", "minLength": 1 },
+        "processorVersion": { "type": "string", "minLength": 1 },
+        "processorRevision": { "type": ["string", "null"] },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "processingConfig": { "$ref": "#/$defs/ProcessingConfig" },
+        "identityPolicyVersion": { "type": "string", "minLength": 1 },
+        "datasets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DatasetDescriptor" },
+          "minItems": 1
+        }
+      }
+    },
+    "InputFile": {
+      "type": "object",
+      "required": [
+        "sourceFileId",
+        "relativePath",
+        "fileName",
+        "size",
+        "modifiedAt",
+        "sha256",
+        "format",
+        "status",
+        "processedRecordCount",
+        "rejectedRowCount",
+        "warningCount"
+      ],
+      "properties": {
+        "sourceFileId": { "type": "string", "minLength": 1 },
+        "relativePath": { "type": "string", "minLength": 1 },
+        "fileName": { "type": "string", "minLength": 1 },
+        "size": { "type": "integer", "minimum": 0 },
+        "modifiedAt": { "type": ["string", "null"], "format": "date-time" },
+        "sha256": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+          ]
+        },
+        "format": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["processed", "skipped", "failed", "unsupported"] },
+        "processedRecordCount": { "type": "integer", "minimum": 0 },
+        "rejectedRowCount": { "type": "integer", "minimum": 0 },
+        "warningCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "SleepRecord": {
+      "type": "object",
+      "required": [
+        "recordId",
+        "stage",
+        "start",
+        "end",
+        "durationMinutes",
+        "sourceKey",
+        "sourceFormat",
+        "sourceFileId",
+        "integrationStatus",
+        "integrationReasonCode"
+      ],
+      "properties": {
+        "recordId": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "originalValue": { "type": ["string", "null"] },
+        "start": { "type": ["string", "null"], "format": "date-time" },
+        "end": { "type": ["string", "null"], "format": "date-time" },
+        "durationMinutes": { "type": "number", "minimum": 0 },
+        "sourceKey": { "type": "string", "minLength": 1 },
+        "sourceFormat": { "type": "string", "minLength": 1 },
+        "sourceFileId": { "type": "string", "minLength": 1 },
+        "sourceName": { "type": ["string", "null"] },
+        "integrationStatus": {
+          "enum": ["adopted", "excluded_duplicate", "pending_overlap", "support", "ignored"]
+        },
+        "integrationReasonCode": { "type": "string", "minLength": 1 },
+        "unifiedBlockId": { "type": ["string", "null"] }
+      }
+    },
+    "SleepStageSegment": {
+      "type": "object",
+      "required": ["start", "end", "durationMinutes", "stage"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "durationMinutes": { "type": "number", "minimum": 0 },
+        "stage": { "type": "string", "minLength": 1 }
+      }
+    },
+    "SleepBlock": {
+      "type": "object",
+      "required": [
+        "blockId",
+        "sleepDay",
+        "start",
+        "end",
+        "durationMinutes",
+        "timeConfidence",
+        "blockType",
+        "isMainSleep",
+        "sourceRecordIds",
+        "sourceKeys",
+        "stageSegments"
+      ],
+      "properties": {
+        "blockId": { "type": "string", "minLength": 1 },
+        "sleepDay": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "start": { "type": ["string", "null"], "format": "date-time" },
+        "end": { "type": ["string", "null"], "format": "date-time" },
+        "durationMinutes": { "type": "number", "minimum": 0 },
+        "timeConfidence": { "enum": ["actual", "estimated", "durationOnly"] },
+        "blockType": { "enum": ["main", "nap", "evening", "supplemental", "unknown"] },
+        "isMainSleep": { "type": "boolean" },
+        "sourceRecordIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "sourceKeys": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "stageSegments": { "type": "array", "items": { "$ref": "#/$defs/SleepStageSegment" } },
+        "excludedBlockIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "pendingOverlapBlockIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "isFallbackBlock": { "type": "boolean" }
+      }
+    },
+    "SleepDay": {
+      "type": "object",
+      "required": [
+        "sleepDay",
+        "boundaryStart",
+        "boundaryEnd",
+        "blockIds",
+        "mainSleepBlockId",
+        "blockCount",
+        "totalSleepMinutes",
+        "longestBlockMinutes",
+        "napBlockCount",
+        "eveningBlockCount"
+      ],
+      "properties": {
+        "sleepDay": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "boundaryStart": { "type": ["string", "null"], "format": "date-time" },
+        "boundaryEnd": { "type": ["string", "null"], "format": "date-time" },
+        "blockIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "mainSleepBlockId": { "type": ["string", "null"] },
+        "blockCount": { "type": "integer", "minimum": 0 },
+        "totalSleepMinutes": { "type": "number", "minimum": 0 },
+        "longestBlockMinutes": { "type": "number", "minimum": 0 },
+        "napBlockCount": { "type": "integer", "minimum": 0 },
+        "eveningBlockCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "SourceSummary": {
+      "type": "object",
+      "required": [
+        "sourceKey",
+        "recordCount",
+        "fullDuplicateCount",
+        "partialOverlapCount",
+        "adoptedRecordCount",
+        "excludedDuplicateCount",
+        "warningCodes"
+      ],
+      "properties": {
+        "sourceKey": { "type": "string", "minLength": 1 },
+        "sourceName": { "type": ["string", "null"] },
+        "sourceApp": { "type": ["string", "null"] },
+        "deviceName": { "type": ["string", "null"] },
+        "recordCount": { "type": "integer", "minimum": 0 },
+        "firstRecordAt": { "type": ["string", "null"], "format": "date-time" },
+        "lastRecordAt": { "type": ["string", "null"], "format": "date-time" },
+        "stageCoverage": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "fullDuplicateCount": { "type": "integer", "minimum": 0 },
+        "partialOverlapCount": { "type": "integer", "minimum": 0 },
+        "adoptedRecordCount": { "type": "integer", "minimum": 0 },
+        "excludedDuplicateCount": { "type": "integer", "minimum": 0 },
+        "warningCodes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "Overlap": {
+      "type": "object",
+      "required": [
+        "overlapId",
+        "kind",
+        "recordOrBlockIds",
+        "sourceKeys",
+        "overlapMinutes",
+        "overlapRatio",
+        "resolution",
+        "reasonCode"
+      ],
+      "properties": {
+        "overlapId": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["full_duplicate_candidate", "partial_overlap_candidate"] },
+        "recordOrBlockIds": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "sourceKeys": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "overlapMinutes": { "type": "number", "minimum": 0 },
+        "overlapRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "resolution": {
+          "enum": ["adopted", "excluded_duplicate", "pending", "support", "ignored"]
+        },
+        "adoptedBlockId": { "type": ["string", "null"] },
+        "reasonCode": { "type": "string", "minLength": 1 }
+      }
+    },
+    "HealthMetric": {
+      "type": "object",
+      "required": [
+        "metricRecordId",
+        "metricName",
+        "metricGroup",
+        "aggregation",
+        "granularity",
+        "windowStart",
+        "windowEnd",
+        "timeZone",
+        "unit",
+        "sourceKey",
+        "sourceFileCount",
+        "sourceRowCount"
+      ],
+      "properties": {
+        "metricRecordId": { "type": "string", "minLength": 1 },
+        "metricName": { "type": "string", "minLength": 1 },
+        "metricGroup": { "enum": ["activity", "vitals"] },
+        "aggregation": { "enum": ["daily_total", "sleep_window_summary"] },
+        "granularity": { "enum": ["day", "sleep_block"] },
+        "date": { "type": ["string", "null"] },
+        "sleepDay": { "type": ["string", "null"] },
+        "sleepDayBoundaryHour": { "type": ["integer", "null"], "minimum": 0, "maximum": 23 },
+        "sleepBlockId": { "type": ["string", "null"] },
+        "sleepBlockType": {
+          "anyOf": [
+            { "type": "null" },
+            { "enum": ["main", "nap", "evening", "supplemental", "unknown"] }
+          ]
+        },
+        "isMainSleep": { "type": ["boolean", "null"] },
+        "windowStart": { "type": "string", "format": "date-time" },
+        "windowEnd": { "type": "string", "format": "date-time" },
+        "timeZone": { "type": "string", "minLength": 1 },
+        "value": { "type": ["number", "null"] },
+        "valueAvg": { "type": ["number", "null"] },
+        "valueMin": { "type": ["number", "null"] },
+        "valueMax": { "type": ["number", "null"] },
+        "valueCount": { "type": ["integer", "null"], "minimum": 0 },
+        "unit": { "type": "string", "minLength": 1 },
+        "sourceKey": { "type": "string", "minLength": 1 },
+        "sourceFileCount": { "type": "integer", "minimum": 0 },
+        "sourceRowCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "DiagnosticWarning": {
+      "type": "object",
+      "required": ["code", "severity", "count"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "sourceFileId": { "type": ["string", "null"] },
+        "count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Diagnostics": {
+      "type": "object",
+      "required": [
+        "status",
+        "inputFileCount",
+        "processedFileCount",
+        "failedFileCount",
+        "sleepRecordCount",
+        "rejectedRowCount",
+        "warningCount",
+        "warnings"
+      ],
+      "properties": {
+        "status": { "enum": ["completed", "completed_with_warnings", "failed"] },
+        "inputFileCount": { "type": "integer", "minimum": 0 },
+        "processedFileCount": { "type": "integer", "minimum": 0 },
+        "failedFileCount": { "type": "integer", "minimum": 0 },
+        "sleepRecordCount": { "type": "integer", "minimum": 0 },
+        "rejectedRowCount": { "type": "integer", "minimum": 0 },
+        "warningCount": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/DiagnosticWarning" } }
+      }
+    },
+    "MigrationSource": {
+      "type": "object",
+      "required": [
+        "sourceSystem",
+        "dataset",
+        "classification",
+        "sourceCount",
+        "targetDataset",
+        "targetCount",
+        "rejectedCount"
+      ],
+      "properties": {
+        "sourceSystem": { "type": "string", "minLength": 1 },
+        "dataset": { "type": "string", "minLength": 1 },
+        "classification": { "enum": ["rebuild", "migrate", "archive"] },
+        "sourceCount": { "type": "integer", "minimum": 0 },
+        "targetDataset": { "type": ["string", "null"] },
+        "targetCount": { "type": "integer", "minimum": 0 },
+        "rejectedCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "MigrationManifest": {
+      "type": "object",
+      "required": ["migrationId", "generatedAt", "status", "sources", "unresolved"],
+      "properties": {
+        "migrationId": { "type": "string", "minLength": 1 },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "status": { "enum": ["completed", "completed_with_warnings", "blocked"] },
+        "sources": { "type": "array", "items": { "$ref": "#/$defs/MigrationSource" } },
+        "unresolved": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Complete": {
+      "type": "object",
+      "required": ["snapshotId", "schemaVersion", "manifestSha256", "completedAt"],
+      "properties": {
+        "snapshotId": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "manifestSha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
