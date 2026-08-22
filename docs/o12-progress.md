@@ -1,12 +1,13 @@
 # O-12 作業進捗管理
 
-状態: **CODEX NEEDED**  
+状態: **O-12a CODEX NEEDED / O-12b PREPARATION**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
-現在のフェーズ: **O-12a — 現状監査**  
-次の担当: **Codex（最小read-only確認）**  
+主フェーズ: **O-12a — 現状監査**  
+並行準備: **O-12b — Processed Data Contract**  
+次の担当: **Codex（O-12a最小read-only確認） / ChatGPT（O-12b先行準備）**  
 最終更新日: **2026-08-23**
 
-この文書は、O-12の実作業を管理する中心文書です。各フェーズの進捗、ChatGPTとCodexの分担、証拠、ブロッカー、ChatGPT ↔ Codex間の依頼と結果を管理します。
+この文書は、O-12の実作業を管理する中心文書です。各フェーズの進捗、ChatGPTとCodexの分担、証拠、ブロッカー、ChatGPT ↔ Codex間の依頼と結果、ChatGPT自身の作業履歴を管理します。
 
 O-12の目的・アーキテクチャ・フェーズゲート・完了条件は基準文書で定義します。この文書と基準文書が矛盾した場合は、**基準文書を優先します。**
 
@@ -42,6 +43,28 @@ Codexは、N100実機、ローカルファイルシステム、ローカルラ�
 
 CodexにはChatGPTが済ませた調査、設計、公開仕様確認、リポジトリ全体レビューを繰り返させません。
 
+### フェーズ先行着手ルール
+
+前フェーズがCodex実機確認などの待ち状態にある場合でも、ChatGPTは次フェーズのうち**非破壊・read-only・前フェーズの未確定事実に依存しない作業**を先行できます。
+
+先行可能な例:
+
+- 既存コード・文書からのschema比較
+- 契約の骨格、命名、versioning、provenance設計
+- test case案、compatibility policy案
+- 後続実装の論点整理
+
+先行してはいけないもの:
+
+- 前フェーズの未確認事実を確定値として扱うこと
+- 次フェーズのExit Gateを通過扱いにすること
+- さらに次の実装フェーズへ進むこと
+- Cloud/Firestore/Drive/production状態を変更すること
+
+**原則:** `前フェーズのExit Gateは順番に通す。ただしChatGPTの安全な準備作業は1フェーズ先まで並行可能。`
+
+O-12aが未完了の間、O-12bで作成する内容のうちGCP/Firestore実在状態に依存する部分は**暫定**として扱います。O-12bをCOMPLETEにする前にO-12aのCodex結果を反映します。
+
 ### ユーザー承認が必要な境界
 
 read-only確認は必要に応じてCodexへ委任できます。
@@ -73,6 +96,7 @@ read-only確認は必要に応じてCodexへ委任できます。
 ## 3. ステータス定義
 
 - **NOT STARTED** — 未着手
+- **PREPARATION** — 前フェーズ待ちの間にChatGPTが安全な先行準備を実施中
 - **CHATGPT WORKING** — ChatGPT側の監査・分析・文書作業中
 - **CODEX NEEDED** — ChatGPT側で絞り込み済みで、残りがローカル確認のみ
 - **CODEX RUNNING** — 限定されたCodex作業を依頼済み
@@ -87,7 +111,7 @@ read-only確認は必要に応じてCodexへ委任できます。
 | Stage | Phase | ChatGPTの主担当 | Codexの最小担当 | 状態 |
 | --- | --- | --- | --- | --- |
 | **1 Inventory** | **O-12a 現状監査** | GitHub/コード/Drive監査、依存関係整理、公開情報確認、GCP/N100結果分析 | N100ローカル情報とread-only `gcloud`/Tailscale/ランタイム確認のみ | **CODEX NEEDED** |
-| **2 Contract** | **O-12b Processed Data Contract** | 契約、version、互換性、provenance、移行ルール設計・レビュー | 必要な場合だけ小規模ローカル試験 | **NOT STARTED** |
+| **2 Contract** | **O-12b Processed Data Contract** | 契約、version、互換性、provenance、移行ルール設計・レビュー | 必要な場合だけ小規模ローカル試験 | **PREPARATION** |
 | **3 Processor** | **O-12c Processor独立化** | 結合箇所分析、リファクタ設計、diff/testレビュー | 限定リファクタと対象テスト | **NOT STARTED** |
 | **3 Processor** | **O-12d Processor堅牢化** | 保存/fingerprint/path/backup仕様、テスト設計、レビュー | filesystem/watcher/snapshot/Drive copy実装・試験 | **NOT STARTED** |
 | **4 Migration** | **O-12e 既存データ移行** | データ分類、adapter/manifest設計、移行証拠レビュー | ローカルmigration/reconstructionと必要最小限のCloud read/export | **NOT STARTED** |
@@ -181,9 +205,13 @@ read-only確認は必要に応じてCodexへ委任できます。
 
 **Exit Gate:** Cloud / Billing / Firestore / Drive / local / host inventoryがO-12b設計に十分で、重要な未説明resource/data categoryが残っていないこと。
 
-**現在の判定:** Codexのread-only実機確認待ち。
+**現在の判定:** Codexのread-only実機確認待ち。ChatGPT側の一次監査は完了。
 
 ### O-12b — Processed Data Contract
+
+**現在の状態: PREPARATION**
+
+O-12aのCodex結果待ちと並行して、実在GCP/Firestore状態に依存しない設計作業はChatGPTが先行できます。O-12a完了前は契約を最終確定しません。
 
 ChatGPT:
 
@@ -195,12 +223,13 @@ ChatGPT:
 - [ ] migration manifestを定義
 - [ ] existing raw/local/Cloud schemaと比較
 - [ ] contract test caseを作成
+- [ ] O-12a Codex結果を反映し、暫定項目を確定
 
 Codex:
 
 - [ ] 静的検証で不足する場合のみ小規模fixture/prototype test
 
-**Exit Gate:** versioned contractとmigration ruleが文書化・test可能で、Data Processorと外部appから利用できる。
+**Exit Gate:** versioned contractとmigration ruleが文書化・test可能で、Data Processorと外部appから利用できる。O-12aがCOMPLETEであることも必要。
 
 ### O-12c — Processor独立化
 
@@ -356,7 +385,22 @@ Codex:
 
 **Exit Gate:** Google Cloud runtime依存がなく、必要dataが保全され、Billing無効化と適切なproject shutdownが完了する。
 
-## 6. ChatGPT ↔ Codex 引き継ぎルール
+## 6. ChatGPT進捗ログ
+
+ChatGPT側の作業もCodexと同様に、チャット履歴だけに依存せずこの文書へ記録します。
+
+| 作業ID | 日付 | Phase | 状態 | 作業 | 結果 / 次の扱い |
+| --- | --- | --- | --- | --- | --- |
+| `GPT-O12A-001` | 2026-08-23 | O-12a | **COMPLETE** | GitHub `master`、local server、Cloud API、Firebase/Firestore依存を監査 | 主要依存とローカル移行seamを特定 |
+| `GPT-O12A-002` | 2026-08-23 | O-12a | **COMPLETE** | 接続済みGoogle Driveをread-only監査 | `Health Auto Export/Sleep` と最新JSONを確認。全履歴件数/最古fileはCodexへ限定委任 |
+| `GPT-O12A-003` | 2026-08-23 | O-12a | **COMPLETE** | Webが必要とするCloud API/Firebase Auth面を監査 | O-12fのminimum parity対象を特定 |
+| `GPT-O12A-004` | 2026-08-23 | O-12a | **COMPLETE** | Firestore categoryとCloud運用履歴の分類論点を整理 | O-12eでRebuild/Migrate/Archive判定が必要 |
+| `GPT-O12A-005` | 2026-08-23 | O-12a | **COMPLETE** | N100/GCPの残未知をCodex 1回へ集約 | `CX-O12A-001` READY |
+| `GPT-O12B-PREP-001` | 2026-08-23 | O-12b | **READY** | O-12a待ちと並行してProcessed Data Contractの静的設計を開始可能にする | 実在GCP/Firestoreに依存しない項目から着手可。最終確定はO-12a後 |
+
+ChatGPTが追加作業を行った場合は `GPT-O12X-NNN` 形式で追記します。
+
+## 7. ChatGPT ↔ Codex 引き継ぎルール
 
 Codex作業は発行前または直後にこの文書へ登録します。
 
@@ -384,7 +428,7 @@ Commit SHA（ある場合）:
 
 Codex出力は証拠であり最終判断ではありません。ChatGPTがレビューし、trackerを更新して追加Codex作業の必要性を判断します。
 
-## 7. Codex依頼キュー / やり取り履歴
+## 8. Codex依頼キュー / やり取り履歴
 
 | 依頼ID | Phase | 状態 | 目的 | Codex範囲 | 結果/証拠 | ChatGPTレビュー |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -479,7 +523,7 @@ GCP: project state / billingEnabled / Run services / Scheduler jobs / Artifact r
 Commit SHA: なし
 ```
 
-## 8. 証拠台帳
+## 9. 証拠台帳
 
 | Evidence ID | Phase | Source | 証明する内容 | Location / reference |
 | --- | --- | --- | --- | --- |
@@ -489,28 +533,45 @@ Commit SHA: なし
 | `EV-O12A-DRIVE-001` | O-12a | Google Drive | `Health Auto Export` / `Sleep` 原本経路と最新JSONの存在を確認 | connected Drive read-only audit |
 | `EV-O12A-PUBLIC-001` | O-12a | Google/Tailscale公式docs | Cloud inventory/shutdownとTailscale Serve前提を再確認 | official docs read-only audit |
 | `EV-O12A-CX-001` | O-12a | Codex | N100/GCPの残監査 | `CX-O12A-001` 実行後に記録 |
+| `EV-O12B-PREP-001` | O-12b | GitHub/O-12a一次監査 | 既存 `SleepRecord[]` 契約をversioned Processed Data Contractへ拡張可能 | O-12b先行準備 |
 
 Codex証拠はこの台帳へ要約します。raw health data、secret、token、OAuth credential、tailnet-sensitive情報、不要なBilling/account識別情報はcommitしません。
 
-## 9. 判断・ブロッカーログ
+## 10. 判断・ブロッカーログ
 
 | 日付 | Phase | 種別 | 判断またはブロッカー | 担当 | 対応 |
 | --- | --- | --- | --- | --- | --- |
 | 2026-08-23 | O-12全体 | Decision | 監査・計画は原則ChatGPT、Codexはlocal実行だけに最小化 | ChatGPT | 有効 |
 | 2026-08-23 | O-12全体 | Decision | Codexとのやり取りをこの進捗文書で管理 | ChatGPT | 有効 |
+| 2026-08-23 | O-12全体 | Decision | ChatGPT自身の進捗も `GPT-O12X-NNN` 形式でこの文書に記録 | ChatGPT | 有効 |
+| 2026-08-23 | O-12全体 | Decision | 前フェーズ待ちでもChatGPTは1フェーズ先の非破壊・非確定作業をPREPARATIONとして進められる | ChatGPT | Exit Gateは順番を維持 |
 | 2026-08-23 | O-12a | Decision | ChatGPT一次監査完了後、残りを `CX-O12A-001` の1回read-only確認へ集約 | ChatGPT | Codex実行待ち |
 | 2026-08-23 | O-12a | Safety | Firestore document readやBilling変更は今回のCodex監査に含めない | ChatGPT | 課金・データ変更を避ける |
+| 2026-08-23 | O-12b | Decision | O-12a待ちと並行して静的Contract設計を準備開始できる | ChatGPT | O-12a結果依存項目は暫定、O-12b完了判定はO-12a後 |
 
-## 10. 現在の次の作業
+## 11. 現在の次の作業
 
-**担当: Codex（`CX-O12A-001` のみ）**
+### Codex側
 
-Codex結果を受け取ったらChatGPTが以下を行います。
+**`CX-O12A-001` のみ実行する。**
+
+Codex結果を受け取ったらChatGPTが:
 
 1. 結果をレビューする。
 2. GCP resource / local data / path / runtimeの事実を一次監査と統合する。
 3. 不要な追加Codex調査を避ける。
 4. O-12a Exit Gateを判定する。
-5. 通過できればO-12b Processed Data Contractへ移る。
 
-O-12aが完了するまでコード変更、Cloud停止、Firestore移行、Billing変更は行いません。
+### ChatGPT側
+
+Codex待ちと並行して **O-12b PREPARATION** を進めてよい。
+
+優先順:
+
+1. 現行 `DATA_CONTRACT.md` とCloud/ローカルschemaの比較表を作る。
+2. Processed Data Contractのdataset構成を仮定義する。
+3. `schemaVersion` / `processorVersion` / `generatedAt` / processing config / provenanceを仮定義する。
+4. snapshot publication、legacy compatibility、migration manifestの骨格を作る。
+5. O-12a Codex結果で影響する項目を「未確定」として分離する。
+
+**O-12aがCOMPLETEになるまでは、O-12bをCOMPLETEにせず、O-12cのコード変更には進みません。**
