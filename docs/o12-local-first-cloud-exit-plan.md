@@ -4,6 +4,8 @@ Status: **Approved baseline**
 Scope: infrastructure and data-platform migration  
 Primary goal: **remove Sleep Compass runtime dependencies on chargeable Google Cloud services while preserving all existing data assets**
 
+Progress tracking: [`docs/o12-progress.md`](./o12-progress.md)
+
 ## 1. Purpose
 
 O-12 migrates Sleep Compass from the current Cloud Run / Firestore / Firebase-centered runtime to a local-first architecture.
@@ -213,7 +215,26 @@ Cloud removal is staged. No destructive deletion occurs before local parity and 
 
 ## 10. Execution map
 
-For readability, O-12 is managed as six major stages. Detailed implementation tasks may keep O-12a/O-12b style sub-numbering under these stages.
+For readability, O-12 is managed as six major stages. The O-12a through O-12j work phases are the detailed execution units under those stages.
+
+### Stage-to-phase correspondence
+
+| Major stage | Work phase | Phase name | Exit gate |
+| --- | --- | --- | --- |
+| **Stage 1 — Inventory** | **O-12a** | Current-state audit | Cloud, Billing, Firestore, Drive, local data, host runtime, paths, and Tailscale have been inventoried read-only; no destructive action taken. |
+| **Stage 2 — Contract** | **O-12b** | Processed Data Contract | Schemas, versioning, provenance, legacy-reader policy, snapshot rules, compatibility policy, and migration-manifest format are defined and testable. |
+| **Stage 3 — Processor** | **O-12c** | Processor independence | Data Processor core can run without Sleep Compass Web/API, Firebase, Cloud Run, Firestore, Tailscale, or Google Drive API. |
+| **Stage 3 — Processor** | **O-12d** | Processor hardening | Safe snapshots, corruption handling, OS/path independence, efficient fingerprinting, watcher/rescan, and Google Drive processed-data backup are working. |
+| **Stage 4 — Migration** | **O-12e** | Existing-data migration | Every important legacy/Cloud dataset is proven rebuilt, migrated, or deliberately archived; reconstruction test passes. |
+| **Stage 5 — Sleep Compass local runtime** | **O-12f** | Sleep Compass independence | Sleep Compass consumes Processed Data instead of Cloud persistence and required local API parity is available. |
+| **Stage 5 — Sleep Compass local runtime** | **O-12g** | Local Web + Tailscale | React/API are same-origin, server is localhost-only, local Firebase Auth dependency is removed, and Tailscale Serve access works. |
+| **Stage 5 — Sleep Compass local runtime** | **O-12h** | Parallel validation and recovery test | Cloud/local parity, new-data processing, deduplication, restart behavior, and clean-room recovery are verified. |
+| **Stage 6 — Cloud exit** | **O-12i** | Cloud operation stop | Cloud automatic processing is stopped and new data continues to process correctly using the local path alone. |
+| **Stage 6 — Cloud exit** | **O-12j** | Complete Cloud exit | Final resource/Billing audit is complete, required data is preserved, Billing is disabled, and the dedicated project is shut down when confirmed safe. |
+
+The stage order and gates are mandatory. In particular, O-12e must complete before destructive Cloud data removal, O-12h must pass before Cloud operation is stopped, and O-12i must verify local-only operation before O-12j.
+
+Detailed progress is maintained separately in [`docs/o12-progress.md`](./o12-progress.md). This baseline describes what O-12 means; the progress document records where implementation currently stands.
 
 ### Stage 1 — Inventory
 
