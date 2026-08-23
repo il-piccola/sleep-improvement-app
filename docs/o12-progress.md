@@ -1,49 +1,34 @@
 # O-12 作業進捗管理
 
-状態: **O-12a BLOCKED（残り: GCP + Drive mount） / O-12b PREPARATION（静的設計ほぼ完了）**  
+状態: **O-12a BLOCKED（残り: GCP + Drive streaming locationの目視確認） / O-12b PREPARATION（静的設計ほぼ完了）**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
-O-12b契約ドラフト: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
+O-12b契約: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 O-12b JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
 GCP監査: [`o12-gcp-readonly-audit.md`](./o12-gcp-readonly-audit.md)  
-N100一次監査: [`o12-n100-readonly-audit.md`](./o12-n100-readonly-audit.md)  
-Drive mount再監査: [`o12-drive-mount-readonly-audit.md`](./o12-drive-mount-readonly-audit.md)  
+Drive mount最終確認: [`o12-drive-mount-manual-check.md`](./o12-drive-mount-manual-check.md)  
 主フェーズ: **O-12a — 現状監査**  
 並行準備: **O-12b — Processed Data Contract**  
-次の担当: **GCP Cloud Shell `GCP-O12A-001` / Codex `CX-O12A-003` / ChatGPTレビュー**  
+次の担当: **GCP `GCP-O12A-001` / Drive目視 `OBS-O12A-DRIVE-001` / ChatGPT review**  
 最終更新日: **2026-08-23**
 
-この文書はO-12の実作業を管理する中心文書です。各フェーズの状態、ChatGPT/Codexの分担、証拠、判断、ブロッカー、引き継ぎを日本語で管理します。
-
-基準文書と矛盾した場合は基準文書を優先します。
+この文書はO-12の実作業を管理する中心文書です。進捗、ChatGPT/Codexの分担、証拠、判断、ブロッカーを日本語で管理します。基準文書と矛盾する場合は基準文書を優先します。
 
 ## 1. 運用原則
 
-O-12は **ChatGPT優先・Codex最小化** で進めます。
-
+- O-12は **ChatGPT優先・Codex最小化** で進める。
 - ChatGPTがGitHub/code/docs/connected Drive/公開仕様/設計/review/gate判定を担当する。
 - CodexはN100 local filesystem/runtime/CLI/build/testなど、ChatGPTから直接実行できない作業だけ担当する。
-- 一度PASSした項目を理由なくCodexへ再確認させない。
-- 前フェーズ待ちでも、ChatGPTは1フェーズ先の非破壊・非確定作業をPREPARATIONとして進められる。
+- 一度PASSした項目を理由なく再確認しない。
+- 前フェーズ待ちでもChatGPTは1フェーズ先の非破壊・非確定作業をPREPARATIONとして進められる。
 - Exit Gateは `O-12a → b → c → d → e → f → g → h → i → j` の順番を崩さない。
 - 停止、削除、無効化、移行、上書き、Billing変更、Project shutdownは該当gateとユーザー明示承認後のみ実行する。
 - raw health data、secret、token、OAuth credential、不要なaccount/tailnet識別情報をrepositoryへ記録しない。
 
-## 2. ステータス
-
-- **NOT STARTED** — 未着手
-- **PREPARATION** — 前フェーズ待ちの安全な先行準備
-- **CHATGPT WORKING** — ChatGPT作業中
-- **CODEX NEEDED** — local実行だけが残る
-- **CODEX RUNNING** — Codex実行中
-- **REVIEW** — 結果レビュー中
-- **BLOCKED** — Exit Gateに必要な証拠が未取得
-- **COMPLETE** — Exit Gate通過、証拠記録済み
-
-## 3. Phase一覧
+## 2. Phase一覧
 
 | Phase | 内容 | 状態 |
 | --- | --- | --- |
-| O-12a | 現状監査 | **BLOCKED — GCP + Drive mountのみ残り** |
+| O-12a | 現状監査 | **BLOCKED — GCP + Drive streaming locationのみ残り** |
 | O-12b | Processed Data Contract | **PREPARATION — 静的設計ほぼ完了** |
 | O-12c | Processor独立化 | **NOT STARTED** |
 | O-12d | Processor堅牢化 | **NOT STARTED** |
@@ -56,16 +41,16 @@ O-12は **ChatGPT優先・Codex最小化** で進めます。
 
 # O-12a — 現状監査
 
-## 4. ChatGPT監査済み
+## 3. ChatGPT監査済み
 
 ### GitHub / local architecture
 
 - [x] `master` code/docs/dependency/Cloud/Firebase参照を監査
 - [x] `server/server.ts` local HTTP API + watcherを確認
-- [x] 現行serverが `0.0.0.0` bind、起動時watcher開始であることを確認
-- [x] `server/importHealthExports.ts` が `mergeAndAnalyzeSleepRecords` を直接呼びProcessor未独立であることを確認
+- [x] serverが `0.0.0.0` bind、起動時watcher開始であることを確認
+- [x] `server/importHealthExports.ts` が `mergeAndAnalyzeSleepRecords` を直接呼び、Processor未独立であることを確認
 - [x] `server/config.ts` に旧Windows drive-letter既定pathが残ることを確認
-- [x] `health-store.json` / `processed-files.json` の直接上書き・read失敗時empty state問題を確認
+- [x] `health-store.json` / `processed-files.json` の直接上書き、read失敗時empty state問題を確認
 - [x] processed ledger 500件上限とfull-file SHA-256 fingerprintを確認
 
 ### Connected Google Drive
@@ -85,7 +70,9 @@ O-12は **ChatGPT優先・Codex最小化** で進めます。
 - [x] health metrics / sleep-window metrics / metric auditがProcessor回収対象であることを確認
 - [x] WebがFirebase Auth / ID Token + Cloud APIへ依存することを確認
 
-## 5. `CX-O12A-001` 結果
+## 4. Codex結果レビュー
+
+### `CX-O12A-001`
 
 判定: **PARTIAL PASS / BLOCKED**
 
@@ -97,46 +84,53 @@ O-12は **ChatGPT優先・Codex最小化** で進めます。
 - O-12b JSON Schema JSON構文PASS
 - Cloud / Firestore / Drive / Tailscale設定変更なし
 
-未取得だったため後続へ分離:
+### `CX-O12A-002`
 
-- GCP current control-plane / Billing
-- N100 Google Drive mount path
-- `server-data` state
-- Tailscale runtime state
+判定: **PARTIAL PASS**
 
-## 6. `CX-O12A-002` 結果レビュー
+PASS:
+
+- [x] `server-data: ABSENT`。current-state inventoryとして受理し、作成しない。
+- [x] Tailscale Windows service存在
+- [x] Tailscale service `Running`
+- [x] StartType `Automatic`
+- [x] Serve configured状態はO-12gで新しいlocalhost-only構成を検証するためO-12a必須証拠から外す
+
+Drive検索の `NOT FOUND` はconnected Drive上のraw source不存在を意味しないため、mount確認だけ後続へ分離した。
+
+### `CX-O12A-003`
 
 Codex結果:
 
-- `Health Auto Export path`: `NOT FOUND`
-- `server-data`: `ABSENT`
-- Tailscale service: `Tailscale / Running / Automatic`
-- health data本文/file名一覧/CLI/Git/GCP/設定変更: なし
+```text
+GoogleDriveFS running: true
+Mount candidates: NONE
+Logical drives: BLOCKED（アクセスは拒否されました）
+Health Auto Export path: NOT FOUND
+変更: なし
+```
 
-ChatGPT判定:
+ChatGPT判定: **PARTIAL PASS / BLOCKED**
 
-### PASSとして確定
+PASS:
 
-- [x] `server-data: ABSENT` はcurrent-state inventoryとして有効。作成しない。
-- [x] Tailscale Windows serviceが存在する。
-- [x] Tailscale serviceは `Running`。
-- [x] StartTypeは `Automatic`。
-- [x] O-12aではServe URL/configured状態は必須にしない。O-12gでlocalhost-only Serveを新規検証する。
+- [x] GoogleDriveFS processが稼働中
+- [x] Drive設定/registry/file/GoogleDriveFS process変更なし
 
-### Drive mountだけ再確認
+未解決:
 
-`Health Auto Export: NOT FOUND` はN100上のraw data不存在を意味しない。
+- logical drive列挙がCodex execution contextでアクセス拒否
+- mount candidateを取得できなかった
 
-理由:
+重要な解釈:
 
-- connected Google Driveでは `Health Auto Export/Sleep` raw sourceを確認済み。
-- 前回 `CX-O12A-002` はC:を検索対象から除外した。
-- Google Drive for desktopの現行Windows仕様ではstreaming locationはdrive letterだけでなくfolder pathにも設定可能。
-- DriveFSがCodex execution contextで非稼働/非表示の場合にもvirtual mountを取得できない可能性がある。
+- `Mount candidates: NONE` / `Health Auto Export: NOT FOUND` は **N100にDrive mountが存在しない証拠ではない**。
+- Google Drive for desktopはWindowsでdrive letterまたはfolderをstreaming locationとして設定できる。
+- Codexの権限制約でOS-visible mountを列挙できなかったため、これ以上Codexを再試行しない。
 
-したがって `CX-O12A-002` は **PARTIAL PASS** とし、Drive mountだけを `CX-O12A-003` へ分離する。
+Drive mountの最終確認は [`o12-drive-mount-manual-check.md`](./o12-drive-mount-manual-check.md) のread-only目視1項目へ切り替える。
 
-## 7. 残監査A — `GCP-O12A-001`
+## 5. 残監査A — `GCP-O12A-001`
 
 手順: [`o12-gcp-readonly-audit.md`](./o12-gcp-readonly-audit.md)
 
@@ -158,45 +152,34 @@ Cloud Shellでread-only確認する:
 - Cloud Asset Inventory assetType count（既にAPI有効な場合のみ）
 - Firebase Hosting site IDs（Hosting APIが既に有効な場合のみ）
 
-料金・安全境界:
+安全境界:
 
-- Cloud Shell自体はGoogle Cloudアカウント利用者は無料。
-- API enable/disableなし。
-- Billing変更なし。
-- resource変更/停止/削除なし。
-- Firestore document本文read/query/exportなし。
-- Secret payload readなし。
+- API enable/disableなし
+- Billing変更なし
+- resource変更/停止/削除なし
+- Firestore document本文read/query/exportなし
+- Secret payload readなし
 
-## 8. 残監査B — `CX-O12A-003`
+## 6. 残監査B — `OBS-O12A-DRIVE-001`
 
-手順: [`o12-drive-mount-readonly-audit.md`](./o12-drive-mount-readonly-audit.md)
+手順: [`o12-drive-mount-manual-check.md`](./o12-drive-mount-manual-check.md)
 
-状態: **READY**
+状態: **READY / Codex追加実行不要**
 
-確認するのはDrive mountだけ:
+Google Drive for desktopの設定画面で次だけ確認する:
 
-- GoogleDriveFS process running true/false
-- DriveFS registryの `DefaultMountPoint` / `mount_point_path` だけ抽出
-- Windows logical drive補助確認
-- mount候補配下の `Health Auto Export` path存在
+- Google Drive streaming location: drive letter または folder path
+- その場所から `Health Auto Export` が見える true/false
+- その配下に `Sleep` が見える true/false
 
-再確認しない:
+設定は変更しない。health JSON本文は開かない。
 
-- Git
-- Node/npm
-- JSON Schema
-- `server-data`
-- Tailscale
-- GCP
+## 7. O-12a Exit Gate
 
-Drive設定/registry/fileは変更しない。
-
-## 9. O-12a Exit Gate
-
-次が揃った時点でChatGPTが判定する。
+残り:
 
 - [ ] `GCP-O12A-001`
-- [ ] `CX-O12A-003`
+- [ ] `OBS-O12A-DRIVE-001`
 
 すでに満たしたもの:
 
@@ -205,13 +188,14 @@ Drive設定/registry/fileは変更しない。
 - [x] local runtime Node/npm
 - [x] `server-data` current state
 - [x] Tailscale Windows service current state
+- [x] GoogleDriveFS process running
 - [x] Cloud/Firestore category map from code/docs
 
 Firestore document本文やhistorical migration実行はO-12eで扱う。
 
 # O-12b — Processed Data Contract
 
-## 10. 状態
+## 8. 状態
 
 **PREPARATION。静的設計ほぼ完了。O-12a完了後にfinal reviewしてExit Gate判定。**
 
@@ -228,10 +212,19 @@ ChatGPT完了:
 - [x] machine-readable JSON Schema
 - [x] JSON Schema JSON構文PASS
 - [x] source integration / overlap / block classification static cross-check
+- [x] O-12a local observation `server-data: ABSENT` をmigration前提へ反映
+
+O-12a結果からの現在の扱い:
+
+- `health-store.json` / `processed-files.json` は **現時点でrepo直下server-dataに存在しない**。
+- したがってO-12eではこれらを「必ず存在するmigration source」と仮定しない。
+- 後で別pathから発見された場合のみlegacy-local sourceとしてRebuild/Migrate/Archive分類へ追加する。
+- connected Drive raw sourceとCloud側データ分類は引き続き主要migration source候補とする。
 
 残り:
 
-- [ ] O-12a結果をlegacy/migration対象へ反映
+- [ ] GCP実在resource/Firestore database metadataをmigration対象表へ反映
+- [ ] Drive OS-visible boundary確認をportable-path注記へ反映
 - [ ] final review
 - [ ] Exit Gate判定
 
@@ -240,7 +233,7 @@ ChatGPT完了:
 - `docs/o12-processed-data-contract.md`
 - `docs/o12-processed-data-schema.json`
 
-主な確定候補:
+## 9. O-12b主要設計
 
 - completed/versioned immutable snapshot
 - canonical JSON/JSONL
@@ -256,7 +249,7 @@ ChatGPT完了:
 
 # O-12c〜O-12j
 
-## 11. O-12c — Processor独立化
+## 10. O-12c — Processor独立化
 
 状態: **NOT STARTED**
 
@@ -279,79 +272,19 @@ Codex:
 
 Exit Gate: ProcessorがSleep Compass Web/API、Firebase、Cloud Run、Firestore、Tailscale、Google Drive APIなしで動く。
 
-## 12. O-12d — Processor堅牢化
+## 11. O-12d〜O-12j 安全順序
 
-状態: **NOT STARTED**
-
-- atomic/versioned snapshot + corruption recovery
-- configurable portable paths
-- drive-letter/absolute-path persistent identity除去
-- efficient fingerprint
-- watcher/rescan
-- raw/processed separation
-- Drive completed snapshot backup
-
-## 13. O-12e — 既存データ移行
-
-状態: **NOT STARTED**
-
-- Rebuild / Migrate / Archive
-- migration adapter / manifest
-- Firestore-only保存対象
-- count/reject/checksum/reconstruction evidence
-- clean-room reconstruction
-
-**O-12e完了前にCloud dataを削除しない。**
-
-## 14. O-12f — Sleep Compass独立化
-
-状態: **NOT STARTED**
-
-- Firestore/Cloud endpoint依存除去
-- Processed Data-backed local API
-- current Web minimum parity
-
-## 15. O-12g — Local Web + Tailscale
-
-状態: **NOT STARTED**
-
-- same-origin React + `/api/*`
-- `127.0.0.1` bind
-- local Firebase Auth dependency除去
-- Tailscale Serve
-- Funnel不使用
-
-## 16. O-12h — 並行検証・復旧試験
-
-状態: **NOT STARTED**
-
-- Cloud/local parity
-- new-file / reprocess / retry / restart
-- clean-room recovery
-
-**O-12h完了前にCloud operationを停止しない。**
-
-## 17. O-12i — Cloud運用停止
-
-状態: **NOT STARTED**
-
-- 最小・可逆のCloud automatic processing停止
-- local-only new-data processing確認
-- Firestore等のCloud dataは削除しない
-
-## 18. O-12j — Cloud完全撤去
-
-状態: **NOT STARTED**
-
-- final resource/Billing/data audit
-- data preservation確認
-- dedicated project確認
-- Billing disable
-- dedicated project shutdown（安全確認・明示承認後のみ）
+- O-12d: Processor堅牢化、portable path、atomic snapshot、fingerprint、watcher/rescan、Drive backup
+- O-12e: Rebuild/Migrate/Archive、clean-room reconstruction。**完了前にCloud dataを削除しない**
+- O-12f: Sleep CompassをProcessed Data-backed local APIへ移行
+- O-12g: same-origin、`127.0.0.1`、Tailscale Serve、Funnel不使用
+- O-12h: Cloud/local parity、restart/recovery。**完了前にCloud operationを停止しない**
+- O-12i: 最小・可逆のCloud automatic processing停止
+- O-12j: final audit、Billing disable、dedicated project shutdown（安全確認・明示承認後のみ）
 
 # 進捗・証拠管理
 
-## 19. ChatGPT進捗ログ
+## 12. ChatGPT進捗ログ
 
 | ID | Phase | 状態 | 作業 | 結果 |
 | --- | --- | --- | --- | --- |
@@ -362,26 +295,29 @@ Exit Gate: ProcessorがSleep Compass Web/API、Firebase、Cloud Run、Firestore�
 | `GPT-O12A-005` | O-12a | COMPLETE | `CX-O12A-001`設計/review | Git/runtime/schema確定 |
 | `GPT-O12A-006` | O-12a | COMPLETE | 残監査をGCP/N100へ分離 | 重複Codex作業削減 |
 | `GPT-O12A-007` | O-12a | COMPLETE | Cloud Shell GCP監査手順作成 | `GCP-O12A-001` READY |
-| `GPT-O12A-008` | O-12a | COMPLETE | `CX-O12A-002` review | Tailscale + server-data確定、Driveだけ未解決 |
-| `GPT-O12A-009` | O-12a | COMPLETE | Google Drive for desktop現行mount仕様再確認 | folder mount可能と確認、前回監査のC:除外を修正 |
-| `GPT-O12A-010` | O-12a | COMPLETE | Drive mount再監査設計 | `CX-O12A-003` READY |
+| `GPT-O12A-008` | O-12a | COMPLETE | `CX-O12A-002` review | Tailscale + server-data確定 |
+| `GPT-O12A-009` | O-12a | COMPLETE | Drive streaming location仕様再確認 | drive letter/folder双方を考慮 |
+| `GPT-O12A-010` | O-12a | COMPLETE | `CX-O12A-003` review | DriveFS running確定、Codex権限制約を特定 |
+| `GPT-O12A-011` | O-12a | COMPLETE | Drive mount確認経路を目視read-onlyへ変更 | `OBS-O12A-DRIVE-001` READY |
 | `GPT-O12B-PREP-001` | O-12b | COMPLETE | existing contract/schema比較 | 継承/分離方針確定 |
 | `GPT-O12B-PREP-002` | O-12b | COMPLETE | Processed Data Contract作成 | contract draft作成 |
 | `GPT-O12B-PREP-003` | O-12b | COMPLETE | snapshot/version/provenance/migration/test設計 | 静的主要設計完了 |
 | `GPT-O12B-PREP-004` | O-12b | COMPLETE | JSON Schema作成 | machine-readable schema |
 | `GPT-O12B-PREP-005` | O-12b | COMPLETE | integration/overlap/block static review | O-12c refactor論点特定 |
 | `GPT-O12B-PREP-006` | O-12b | COMPLETE | Codex schema syntax result review | JSON syntax PASS |
+| `GPT-O12B-PREP-007` | O-12b | COMPLETE | `server-data: ABSENT` をmigration前提へ反映 | legacy-local sourceを条件付き扱いに変更 |
 
-## 20. Codex / 外部実行キュー
+## 13. 外部実行キュー
 
 | ID | Phase | 状態 | 内容 | ChatGPT review |
 | --- | --- | --- | --- | --- |
 | `CX-O12A-001` | O-12a | PARTIAL PASS | Git/runtime/schema + 広域監査試行 | 確定項目を再確認対象から除外 |
-| `CX-O12A-002` | O-12a | PARTIAL PASS | N100 filesystem + Tailscale | Tailscale/server-data PASS。Drive検索手順不足 |
-| `CX-O12A-003` | O-12a | READY | DriveFS mount pointだけread-only再確認 | 未実行 |
+| `CX-O12A-002` | O-12a | PARTIAL PASS | N100 filesystem + Tailscale | Tailscale/server-data PASS |
+| `CX-O12A-003` | O-12a | PARTIAL PASS / BLOCKED | DriveFS mount再監査 | DriveFS running PASS、mount列挙は権限制約で未取得。再実行しない |
+| `OBS-O12A-DRIVE-001` | O-12a | READY | Drive for desktop設定画面のstreaming location目視 | 未実行 |
 | `GCP-O12A-001` | O-12a | READY | Cloud Shell read-only control-plane/Billing監査 | 未実行 |
 
-## 21. 証拠台帳
+## 14. 証拠台帳
 
 | Evidence ID | Phase | Source | 内容 |
 | --- | --- | --- | --- |
@@ -390,17 +326,22 @@ Exit Gate: ProcessorがSleep Compass Web/API、Firebase、Cloud Run、Firestore�
 | `EV-O12A-GH-001` | O-12a | GitHub | code/local/Cloud dependency audit |
 | `EV-O12A-DRIVE-001` | O-12a | connected Drive | raw source経路と最新JSON |
 | `EV-O12A-CX-001` | O-12a | Codex | Git/runtime/schema + blocker |
-| `EV-O12A-CX-002` | O-12a | Codex | Tailscale Running/Automatic + server-data ABSENT + Drive NOT FOUND |
-| `EV-O12A-GCP-001` | O-12a | Cloud Shell | 実行後記録 |
-| `EV-O12A-CX-003` | O-12a | Codex | Drive mount再監査後記録 |
+| `EV-O12A-CX-002` | O-12a | Codex | Tailscale Running/Automatic + server-data ABSENT |
+| `EV-O12A-CX-003` | O-12a | Codex | DriveFS running + mount列挙権限制約 |
+| `EV-O12A-DRIVE-OBS-001` | O-12a | local UI | 実行後にstreaming locationを記録 |
+| `EV-O12A-GCP-001` | O-12a | Cloud Shell | 実行後にcontrol-plane/Billingを記録 |
 | `EV-O12B-CONTRACT-001` | O-12b | GitHub | Processed Data Contract |
 | `EV-O12B-SCHEMA-001` | O-12b | GitHub/Codex | JSON Schema + JSON syntax PASS |
 
-## 22. 現在の次の作業
+## 15. 現在の次の作業
 
 ### Codex
 
-`CX-O12A-003` のみ実行する。
+**追加Codexなし。** Drive mountについて `CX-O12A-003` を再実行しない。
+
+### Drive
+
+`docs/o12-drive-mount-manual-check.md` の `OBS-O12A-DRIVE-001` をread-onlyで確認する。
 
 ### GCP
 
@@ -408,10 +349,10 @@ Cloud Shellで `docs/o12-gcp-readonly-audit.md` の `GCP-O12A-001` をread-only�
 
 ### ChatGPT
 
-両結果をreviewし:
+2結果をreviewし:
 
 1. O-12a Exit Gate判定
-2. O-12a COMPLETEならO-12bへ結果反映
+2. O-12a COMPLETEならO-12bへ最終結果反映
 3. Processed Data Contract final review
 4. 静的に十分なら追加CodexなしでO-12b Exit Gate判定
 5. O-12b COMPLETE後にのみO-12cを開始
