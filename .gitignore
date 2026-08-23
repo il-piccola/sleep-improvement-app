@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 server-data
+processed-data
+health-auto-export
 
 # Editor directories and files
 .vscode/*
