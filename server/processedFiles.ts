@@ -140,8 +140,6 @@ export async function hasProcessedFile(
   return state.files.some(
     (file) =>
       file.relativePath === fingerprint.relativePath &&
-      file.mtimeMs === fingerprint.mtimeMs &&
-      file.size === fingerprint.size &&
       file.sha256 === fingerprint.sha256 &&
       file.importerVersion === currentImporterVersion &&
       file.status === 'imported',
@@ -221,9 +219,16 @@ function normalizeProcessedFileEntry(
     return null
   }
 
+  let normalizedRelativePath: string
+  try {
+    normalizedRelativePath = normalizeRelativePath(relativePath)
+  } catch {
+    return null
+  }
+
   return {
     importerVersion: typeof entry.importerVersion === 'number' ? entry.importerVersion : 1,
-    relativePath: normalizeRelativePath(relativePath),
+    relativePath: normalizedRelativePath,
     fileName: entry.fileName,
     mtimeMs: entry.mtimeMs,
     size: entry.size,
@@ -237,8 +242,14 @@ function normalizeProcessedFileEntry(
 function normalizeRelativePath(value: string): string {
   const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '')
 
-  if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
-    throw new Error('Processed file identity must use a relative path')
+  if (
+    !normalized ||
+    normalized.startsWith('/') ||
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    throw new Error('Processed file identity must use a relative path below the raw root')
   }
 
   return normalized
