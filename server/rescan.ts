@@ -1,30 +1,13 @@
 import { loadHealthImportConfig } from './config.ts'
+import { createHealthExportWatcher } from './watchHealthExports.ts'
 
 const config = loadHealthImportConfig()
-const url = `http://localhost:${config.serverPort}/api/rescan`
+const watcher = createHealthExportWatcher(config)
 
 try {
-  const response = await fetch(url, {
-    method: 'POST',
-  })
+  const status = await watcher.rescan()
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
-  }
-
-  const status = (await response.json()) as {
-    lastScanAt?: string
-    lastProcessedFileName?: string | null
-    latestStats?: {
-      readFileCount: number
-      newRecordCount: number
-      duplicateSkippedCount: number
-      rejectedRows: number
-      warningCount: number
-    } | null
-  }
-
-  console.log('Rescan requested')
+  console.log('Standalone rescan completed')
   console.log(`Last scan: ${status.lastScanAt ?? 'unknown'}`)
   console.log(`Last file: ${status.lastProcessedFileName ?? 'none'}`)
 
@@ -35,11 +18,12 @@ try {
     console.log(`Rejected rows: ${status.latestStats.rejectedRows}`)
     console.log(`Warnings: ${status.latestStats.warningCount}`)
   }
+
+  if (status.lastError) {
+    console.error(`Last error: ${status.lastError}`)
+    process.exitCode = 1
+  }
 } catch (error) {
-  console.error(
-    `Rescan failed. Start the local import server first with "npm run server". ${
-      error instanceof Error ? error.message : String(error)
-    }`,
-  )
+  console.error(`Rescan failed: ${error instanceof Error ? error.message : String(error)}`)
   process.exitCode = 1
 }
