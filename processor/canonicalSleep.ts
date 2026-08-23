@@ -32,7 +32,12 @@ export function processCanonicalSleep(
 ): CanonicalSleepProcessingResult {
   const candidateBlocks = buildProcessorSleepBlocks(records, config)
   const overlaps = detectProcessorOverlaps(candidateBlocks, config)
-  const integration = integrateProcessorSleep({ candidateBlocks, blocks: candidateBlocks, config, overlaps, policy } as never)
+  const integration = integrateProcessorSleep({
+    blocks: candidateBlocks,
+    config,
+    overlaps,
+    policy,
+  })
   const sleepDayResult = buildProcessorSleepDays({
     adoptedBlockIds: integration.adoptedBlockIds,
     blocks: candidateBlocks,
