@@ -5,9 +5,9 @@ import type {
   HealthAutoExportStageCounts,
   RawHealthAutoExportMetric,
   RawHealthAutoExportRow,
-} from './importTypes'
-import type { NormalizedSleepStage } from '../../types/sleep'
-import { resolveSleepSource } from '../source/resolveSleepSource'
+} from './importTypes.ts'
+import type { NormalizedSleepStage } from '../../types/sleep.ts'
+import { resolveSleepSource } from '../source/resolveSleepSource.ts'
 
 type ParsedAuditInput = {
   parsed: unknown
