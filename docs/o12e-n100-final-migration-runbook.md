@@ -181,12 +181,7 @@ $sourceBackupSnapshot = Join-Path $BACKUP_ROOT (Join-Path "snapshots" $rawResult
 ```powershell
 $cloudEvidence = Join-Path $evidenceRoot "o12e-firestore-evidence.json"
 $mergedEvidence = Join-Path $evidenceRoot "o12e-migration-evidence.json"
-
-& $tsx processor/runLocalMigrationEvidence.ts \
-  --data-dir $DATA_DIR \
-  --evidence-root $evidenceRoot \
-  --output $mergedEvidence \
-  --cloud-evidence $cloudEvidence
+& $tsx processor/runLocalMigrationEvidence.ts --data-dir $DATA_DIR --evidence-root $evidenceRoot --output $mergedEvidence --cloud-evidence $cloudEvidence
 if ($LASTEXITCODE -ne 0) { throw "Migration evidence merge failed" }
 ```
 
@@ -214,12 +209,7 @@ ZIP本文をterminalへ表示しない。
 
 ```powershell
 $migrationId = "mig-$stamp"
-$migrationJson = & $tsx processor/runMigration.ts \
-  --source-snapshot $sourceSnapshot \
-  --processed-data-root $PROCESSED_ROOT \
-  --evidence $mergedEvidence \
-  --backup-root $BACKUP_ROOT \
-  --migration-id $migrationId
+$migrationJson = & $tsx processor/runMigration.ts --source-snapshot $sourceSnapshot --processed-data-root $PROCESSED_ROOT --evidence $mergedEvidence --backup-root $BACKUP_ROOT --migration-id $migrationId
 $migrationExit = $LASTEXITCODE
 $migrationResult = ($migrationJson -join "`n") | ConvertFrom-Json
 $migrationSnapshot = Join-Path $PROCESSED_ROOT (Join-Path "snapshots" $migrationResult.snapshotId)
