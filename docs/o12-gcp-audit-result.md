@@ -1,6 +1,6 @@
 # O-12a GCP read-only監査結果
 
-Status: **PARTIAL PASS — 未説明Cloud Run service 1件の分類待ち**  
+Status: **PASS — current-state inventory完了、用途不明resourceはO-12j再確認対象として保留**  
 Phase: **O-12a — 現状監査**  
 監査ID: **GCP-O12A-001**  
 実施日: **2026-08-23**
@@ -25,6 +25,8 @@ Google Cloud Shellからread-only commandのみを実行した。
 - lifecycleState: `ACTIVE`
 - billingEnabled: `true`
 
+Billingは現時点で有効であることをcurrent-stateとして記録する。O-12jより前にBilling設定を変更しない。
+
 ### Cloud Run
 
 `asia-northeast1` で次の3 serviceを確認した。
@@ -34,8 +36,6 @@ Google Cloud Shellからread-only commandのみを実行した。
 - `maya-daily-observation-console`
 
 最初の2件はSleep Compass repository/docsの既知resourceと一致する。
-
-`maya-daily-observation-console` はSleep Compass repository内を検索しても参照を確認できなかったため、O-12aでは **未説明resource** とする。削除・停止・変更は行わない。
 
 ### Cloud Scheduler
 
@@ -49,7 +49,7 @@ repository/docs上の既知resourceと一致する。
 
 - repository: `cloud-run-source-deploy`
 - format: `DOCKER`
-- locationは今回の表出力では空欄だったため、O-12aではrepository存在確認までを証拠とする。
+- locationは初回table出力では空欄だったため、O-12aではrepository存在確認を証拠とする。
 
 ### Firestore
 
@@ -102,19 +102,41 @@ trigger一覧は空だった。今回の出力上、trigger名は確認されな
 
 `cloudasset.googleapis.com` はenabled一覧に含まれなかったため未実行。
 
-**APIは有効化しない。** O-12aではservice-specific inventoryを既に取得しているため、CAI未実行自体はblockerにしない。
+**APIは有効化しない。** O-12aではservice-specific inventoryを取得しており、CAI未実行自体はblockerにしない。
 
 ### Firebase Hosting
 
 - site ID: `sleep-improvement-cloud`
 
-## 3. ChatGPTレビュー
+## 3. `maya-daily-observation-console` 追加read-only分類
 
-`GCP-O12A-001` は **PARTIAL PASS**。
+追加確認結果:
+
+- service: `maya-daily-observation-console`
+- region: `asia-northeast1`
+- creationTimestamp: `2026-05-26T01:32:37.322920Z`
+- latestReadyRevisionName: `maya-daily-observation-console-00009-vpx`
+- container image: `asia-northeast1-docker.pkg.dev/sleep-improvement-cloud/cloud-run-source-deploy/maya-daily-observation-console@sha256...`
+- Sleep Compass repository内にservice名の参照なし
+
+このmetadataから、serviceが同projectのArtifact Registryからdeployされていることは確認できるが、用途そのものは確定できない。
+
+O-12aでの分類は次とする。
+
+- **Inventory status: inventoried**
+- **Sleep Compass relation: unconfirmed / non-Sleep-Compass candidate**
+- **Destructive action: prohibited**
+- **O-12j: dedicated-project判定前に再確認必須**
+
+用途不明であること自体を隠さず、既知の保留資産として台帳へ残す。O-12aの目的はcurrent-state inventoryであり、このserviceの用途解明や削除は必須ではない。一方、O-12jでproject全体をshutdownできるかどうかには直接影響するため、再確認なしにproject shutdownしてはいけない。
+
+## 4. ChatGPTレビュー / Exit Gateへの扱い
+
+`GCP-O12A-001` は **PASS**。
 
 確認できた主要category:
 
-- Project lifecycle / Billing
+- Project lifecycle / Billing enabled state
 - Cloud Run
 - Cloud Scheduler
 - Artifact Registry
@@ -125,35 +147,13 @@ trigger一覧は空だった。今回の出力上、trigger名は確認されな
 - Cloud Build trigger list
 - relevant enabled APIs
 - Firebase Hosting
+- 未説明Cloud Run resourceの存在とread-only metadata
 
-O-12aの残blockerは、Sleep Compass repository/docsに参照のないCloud Run service `maya-daily-observation-console` の用途/由来の分類だけとする。
+`maya-daily-observation-console` は用途不明のままだが、存在・作成時刻・region・revision・image sourceを棚卸しし、削除禁止とO-12j再確認条件を明示したため、O-12a current-state inventoryの未確認resourceとしては残さない。
 
-このserviceは現時点で停止・削除しない。O-12aではread-only metadataを最小追加確認し、Sleep Compass関連 / 他用途 / 不明のいずれかへ分類する。
+O-12a後も次を守る。
 
-## 4. 次の最小確認
-
-Cloud Shellで次のread-only commandだけを実行する。
-
-```bash
-PROJECT="sleep-improvement-cloud"
-SERVICE="maya-daily-observation-console"
-REGION="asia-northeast1"
-
-gcloud run services describe "$SERVICE" \
-  --project="$PROJECT" \
-  --region="$REGION" \
-  --format='yaml(metadata.name,metadata.creationTimestamp,metadata.labels,status.latestReadyRevisionName,spec.template.spec.containers[0].image)'
-```
-
-返却するのは上記commandの出力だけでよい。
-
-禁止:
-
-- service update/delete
-- traffic変更
-- IAM変更
-- env/secrets表示
-- logs閲覧
-- API enable/disable
-
-この結果で用途が判別できない場合は、O-12aで「用途不明resource」として明示的に残し、Cloud撤去前のO-12j final auditでも再確認対象とする。
+- `maya-daily-observation-console` を停止・削除・変更しない。
+- O-12jのdedicated project判定前に用途を再確認する。
+- 別用途resourceと判明した場合、`sleep-improvement-cloud` project全体のshutdownは禁止し、Sleep Compass resourceだけを個別撤去するか、別用途resourceを安全に移す計画を先に定義する。
+- Firestore document内容・migration分類・reconstructionはO-12eで扱う。
