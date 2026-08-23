@@ -6,6 +6,17 @@ import type { ProcessorConfig } from './types.ts'
 export const PROCESSED_DATA_SCHEMA_ID = 'sleep-compass.processed-data'
 export const PROCESSED_DATA_SCHEMA_VERSION = '1.0.0'
 
+const REQUIRED_DATASETS = [
+  'input-files',
+  'sleep-records',
+  'sleep-blocks',
+  'sleep-days',
+  'source-summaries',
+  'overlaps',
+  'health-metrics',
+  'diagnostics',
+] as const
+
 export type ProcessedSnapshotContent = {
   inputFiles: unknown[]
   sleepRecords: unknown[]
@@ -108,6 +119,7 @@ export async function publishProcessedSnapshot({
       identityPolicyVersion,
       datasets,
     }
+    validateManifest(manifest)
     const manifestBytes = encodeJson(manifest)
     const manifestPath = join(stagingDir, 'manifest.json')
     await writeFile(manifestPath, manifestBytes)
@@ -206,7 +218,7 @@ export async function copyCompletedSnapshotToBackup(
     await validateCompletedSnapshot(destination)
     return destination
   } catch (error) {
-    // Keep an incomplete backup without complete.json only if removal itself fails.
+    // Keep the directory explicitly incomplete if a copy fails.
     await rm(join(destination, 'complete.json'), { force: true })
     throw error
   }
@@ -250,6 +262,7 @@ async function writeDatasets(
   const descriptors: SnapshotDatasetDescriptor[] = []
 
   for (const dataset of specs) {
+    validateDatasetValue(dataset.name, dataset.value, dataset.jsonl)
     const bytes = dataset.jsonl
       ? encodeJsonLines(dataset.value as unknown[])
       : encodeJson(dataset.value)
@@ -273,6 +286,7 @@ async function verifyManifestDatasets(
   manifest: ProcessedSnapshotManifest,
 ): Promise<void> {
   for (const dataset of manifest.datasets) {
+    validateDatasetDescriptor(dataset)
     const path = join(snapshotDir, dataset.path)
     const bytes = await readFile(path)
     if (bytes.byteLength !== dataset.byteLength) {
@@ -282,11 +296,21 @@ async function verifyManifestDatasets(
       throw new Error(`Dataset SHA-256 mismatch: ${dataset.path}`)
     }
 
-    const recordCount = dataset.mediaType === 'application/x-ndjson'
-      ? countJsonLines(bytes.toString('utf8'))
-      : 1
-    if (recordCount !== dataset.recordCount) {
-      throw new Error(`Dataset record count mismatch: ${dataset.path}`)
+    const text = bytes.toString('utf8')
+    if (dataset.mediaType === 'application/x-ndjson') {
+      const records = parseJsonLines(text, dataset.path)
+      if (records.length !== dataset.recordCount) {
+        throw new Error(`Dataset record count mismatch: ${dataset.path}`)
+      }
+      validateDatasetValue(dataset.name, records, true)
+    } else if (dataset.mediaType === 'application/json') {
+      const value = JSON.parse(text) as unknown
+      if (dataset.recordCount !== 1) {
+        throw new Error(`JSON dataset record count must be 1: ${dataset.path}`)
+      }
+      validateDatasetValue(dataset.name, value, false)
+    } else {
+      throw new Error(`Unsupported dataset media type: ${dataset.mediaType}`)
     }
   }
 }
@@ -301,8 +325,20 @@ function validateManifest(value: ProcessedSnapshotManifest): void {
   if (!value.snapshotId || !value.processorVersion || !value.identityPolicyVersion) {
     throw new Error('Processed data manifest is missing required identity fields')
   }
-  if (!value.processingConfig || !Array.isArray(value.datasets) || value.datasets.length === 0) {
-    throw new Error('Processed data manifest is missing config or datasets')
+  validateSnapshotId(value.snapshotId)
+  if (!isDateTime(value.generatedAt)) {
+    throw new Error('Processed data manifest generatedAt is invalid')
+  }
+  validateProcessingConfig(value.processingConfig)
+  if (!Array.isArray(value.datasets) || value.datasets.length === 0) {
+    throw new Error('Processed data manifest is missing datasets')
+  }
+
+  const names = new Set(value.datasets.map((dataset) => dataset.name))
+  for (const required of REQUIRED_DATASETS) {
+    if (!names.has(required)) {
+      throw new Error(`Processed data manifest is missing required dataset: ${required}`)
+    }
   }
 }
 
@@ -313,9 +349,106 @@ function validateComplete(value: ProcessedSnapshotComplete): void {
     typeof value.schemaVersion !== 'string' ||
     typeof value.manifestSha256 !== 'string' ||
     !/^[a-f0-9]{64}$/i.test(value.manifestSha256) ||
-    typeof value.completedAt !== 'string'
+    !isDateTime(value.completedAt)
   ) {
     throw new Error('Invalid snapshot complete marker')
+  }
+}
+
+function validateProcessingConfig(value: ProcessorConfig): void {
+  if (
+    !value ||
+    typeof value.timeZone !== 'string' ||
+    !Number.isInteger(value.sleepDayBoundaryHour) ||
+    typeof value.mergeGapMinutes !== 'number' ||
+    typeof value.napCandidateMaxMinutes !== 'number' ||
+    !Number.isInteger(value.eveningSleepStartHour) ||
+    !Number.isInteger(value.eveningSleepEndHour) ||
+    value.mainSleepRule !== 'longest_block_per_sleep_day' ||
+    typeof value.sourceIntegrationPolicyVersion !== 'string'
+  ) {
+    throw new Error('Invalid processed data processingConfig')
+  }
+}
+
+function validateDatasetDescriptor(dataset: SnapshotDatasetDescriptor): void {
+  if (
+    !dataset ||
+    typeof dataset.name !== 'string' ||
+    typeof dataset.path !== 'string' ||
+    basename(dataset.path) !== dataset.path ||
+    typeof dataset.mediaType !== 'string' ||
+    typeof dataset.recordType !== 'string' ||
+    !Number.isInteger(dataset.recordCount) || dataset.recordCount < 0 ||
+    !Number.isInteger(dataset.byteLength) || dataset.byteLength < 0 ||
+    !/^[a-f0-9]{64}$/i.test(dataset.sha256)
+  ) {
+    throw new Error('Invalid dataset descriptor')
+  }
+}
+
+function validateDatasetValue(name: string, value: unknown, jsonl: boolean): void {
+  if (jsonl) {
+    if (!Array.isArray(value)) throw new Error(`${name} must be an array before JSONL publication`)
+    for (const record of value) validateDatasetRecord(name, record)
+    return
+  }
+
+  if (name === 'diagnostics') {
+    assertRequiredFields(value, name, [
+      'status', 'inputFileCount', 'processedFileCount', 'failedFileCount',
+      'sleepRecordCount', 'rejectedRowCount', 'warningCount', 'warnings',
+    ])
+  } else if (name === 'migration-manifest') {
+    assertRequiredFields(value, name, ['migrationId', 'generatedAt', 'status', 'sources', 'unresolved'])
+  }
+}
+
+function validateDatasetRecord(name: string, value: unknown): void {
+  const requiredByDataset: Record<string, string[]> = {
+    'input-files': [
+      'sourceFileId', 'relativePath', 'fileName', 'size', 'modifiedAt', 'sha256', 'format',
+      'status', 'processedRecordCount', 'rejectedRowCount', 'warningCount',
+    ],
+    'sleep-records': [
+      'recordId', 'stage', 'start', 'end', 'durationMinutes', 'sourceKey', 'sourceFormat',
+      'sourceFileId', 'integrationStatus', 'integrationReasonCode',
+    ],
+    'sleep-blocks': [
+      'blockId', 'sleepDay', 'start', 'end', 'durationMinutes', 'timeConfidence', 'blockType',
+      'isMainSleep', 'sourceRecordIds', 'sourceKeys', 'stageSegments',
+    ],
+    'sleep-days': [
+      'sleepDay', 'boundaryStart', 'boundaryEnd', 'blockIds', 'mainSleepBlockId', 'blockCount',
+      'totalSleepMinutes', 'longestBlockMinutes', 'napBlockCount', 'eveningBlockCount',
+    ],
+    'source-summaries': [
+      'sourceKey', 'recordCount', 'fullDuplicateCount', 'partialOverlapCount',
+      'adoptedRecordCount', 'excludedDuplicateCount', 'warningCodes',
+    ],
+    overlaps: [
+      'overlapId', 'kind', 'recordOrBlockIds', 'sourceKeys', 'overlapMinutes', 'overlapRatio',
+      'resolution', 'reasonCode',
+    ],
+    'health-metrics': [
+      'metricRecordId', 'metricName', 'metricGroup', 'aggregation', 'granularity', 'windowStart',
+      'windowEnd', 'timeZone', 'unit', 'sourceKey', 'sourceFileCount', 'sourceRowCount',
+    ],
+  }
+  const required = requiredByDataset[name]
+  if (!required) return
+  assertRequiredFields(value, name, required)
+}
+
+function assertRequiredFields(value: unknown, name: string, fields: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${name} contains a non-object record`)
+  }
+  const record = value as Record<string, unknown>
+  for (const field of fields) {
+    if (!(field in record)) {
+      throw new Error(`${name} record is missing required field: ${field}`)
+    }
   }
 }
 
@@ -360,9 +493,17 @@ function encodeJsonLines(values: unknown[]): Buffer {
   return Buffer.from(`${values.map((value) => stableStringify(value)).join('\n')}\n`, 'utf8')
 }
 
-function countJsonLines(text: string): number {
-  if (!text) return 0
-  return text.split(/\r?\n/).filter((line) => line.trim().length > 0).length
+function parseJsonLines(text: string, path: string): unknown[] {
+  const records: unknown[] = []
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    if (!line.trim()) continue
+    try {
+      records.push(JSON.parse(line) as unknown)
+    } catch {
+      throw new Error(`Invalid JSONL in ${path} at line ${index + 1}`)
+    }
+  }
+  return records
 }
 
 function sha256(value: Uint8Array): string {
@@ -398,6 +539,10 @@ function validateSnapshotId(snapshotId: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(snapshotId)) {
     throw new Error('Invalid snapshot ID')
   }
+}
+
+function isDateTime(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
 }
 
 function isMissing(error: unknown): boolean {
