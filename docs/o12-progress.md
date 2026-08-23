@@ -1,12 +1,13 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c CODEX NEEDED（C1検証待ち）**  
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c CODEX NEEDED（C1検証前のworktree整理待ち）**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
 Migration Source Map: [`o12-migration-source-map.md`](./o12-migration-source-map.md)  
 O-12c設計: [`o12c-processor-independence.md`](./o12c-processor-independence.md)  
 C1検証: [`o12c-c1-validation.md`](./o12c-c1-validation.md)  
+worktreeトリアージ: [`o12c-worktree-triage.md`](./o12c-worktree-triage.md)  
 最終更新日: **2026-08-23**
 
 この文書はO-12の実作業を管理する中心文書です。基準文書と矛盾する場合は基準文書を優先します。
@@ -28,7 +29,7 @@ C1検証: [`o12c-c1-validation.md`](./o12c-c1-validation.md)
 | --- | --- | --- |
 | O-12a | 現状監査 | **COMPLETE** |
 | O-12b | Processed Data Contract | **COMPLETE — v1.0.0** |
-| O-12c | Processor独立化 | **CODEX NEEDED — C1実装済み、N100検証待ち** |
+| O-12c | Processor独立化 | **CODEX NEEDED — C1実装済み、worktree整理後にN100検証** |
 | O-12d | Processor堅牢化 | **NOT STARTED** |
 | O-12e | 既存データ移行 | **NOT STARTED** |
 | O-12f | Sleep Compass独立化 | **NOT STARTED** |
@@ -165,14 +166,26 @@ ChatGPTがremote `master`へ実装済み。
 - existing watcher/serverは従来の`server/importHealthExports.ts` interfaceを維持
 - real health data fixtureをrepositoryへ追加していない
 
-検証task: **`CX-O12C-001`**  
-手順: [`o12c-c1-validation.md`](./o12c-c1-validation.md)
+### N100検証履歴
 
-状態: **CODEX NEEDED — test/buildのみ。編集禁止。**
+- `CX-O12C-001`: **BLOCKED**。C1 test/build開始前にworktree dirtyを検出し、安全停止。コード異常の証拠ではない。
+- dirty対象はdocs 4件のみ:
+  - `docs/o12-progress.md`
+  - `docs/o12-drive-mount-readonly-audit.md`
+  - `docs/o12-gcp-readonly-audit.md`
+  - `docs/o12-n100-readonly-audit.md`
+- `CX-O12C-002`: **PASS**。上記4件をread-onlyで差分確認。変更・reset・stash・pull・rebaseなし。
+- ただし返却summaryにはdiff本文が含まれなかったため、保存要否判定はまだ行わない。
+
+現在のblocker: **dirty 4 docsの内容が最新remoteと同一/旧版か、local固有情報を含むかの分類だけ**。
+
+C1コードへの追加変更は行わない。worktree整理後に `CX-O12C-001` のtest/buildを再実行する。
 
 ## 7. C1 PASS後の次作業
 
 ### C2
+
+設計準備済み。C1検証PASSまではコードを積まない。
 
 - `SleepSourcePreferenceMap` 依存をcanonical integrationから除去
 - versioned Processor `SourceIntegrationPolicy`
@@ -227,14 +240,18 @@ Firestore `userId` / `runId` / document型をProcessor canonical modelから除�
 | `GPT-O12B-FINAL-001` | O-12b | COMPLETE | v1.0.0 Exit Gate判定 |
 | `GPT-O12C-001` | O-12c | COMPLETE | coupling map / C1-C3設計 |
 | `GPT-O12C-002` | O-12c | COMPLETE | C1 remote implementation |
-| `CX-O12C-001` | O-12c | READY | N100 C1 test/build validation |
+| `CX-O12C-001` | O-12c | BLOCKED | worktree dirtyを検出し検証前に安全停止 |
+| `CX-O12C-002` | O-12c | PASS | dirty docs 4件をread-only確認、変更なし |
 
 ## 10. 現在の次作業
 
 ### Codex
 
-`CX-O12C-001` のみ。コード編集なし。
+次はdirty 4 docsの**remote一致/ローカル固有差分の分類だけ**。worktree変更禁止。分類後、ChatGPTがclean-up手順を決定する。
 
 ### ChatGPT
 
-`CX-O12C-001`結果をreviewし、PASSならC1を閉じてC2実装設計/差分へ進む。
+- `CX-O12C-002`をPASSとして記録済み
+- C2 file-level designは準備済み
+- dirty docsの保存要否が確定するまでC1コードへの追加変更を重ねない
+- worktree clean後にC1 test/buildを再実行し、PASSならC2実装へ進む
