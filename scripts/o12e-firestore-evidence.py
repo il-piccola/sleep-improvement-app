@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -30,12 +29,6 @@ COLLECTIONS = [
     "ingest_batches",
     "metric_audit_summaries",
 ]
-ARCHIVE_COLLECTIONS = {
-    "processed_drive_files",
-    "drive_sync_runs",
-    "ingest_batches",
-    "metric_audit_summaries",
-}
 USER_PATH_RE = re.compile(r"/documents/users/([^/]+)/")
 
 
@@ -152,12 +145,8 @@ def health_projection(value: dict[str, Any]) -> dict[str, Any]:
         "aggregation": value.get("aggregation"),
         "date": value.get("date"),
         "granularity": value.get("granularity"),
-        "isMainSleep": value.get("isMainSleep"),
         "metricGroup": value.get("metricGroup"),
         "metricName": value.get("metricName"),
-        "sleepBlockType": value.get("sleepBlockType"),
-        "sleepDay": value.get("sleepDay"),
-        "sleepDayBoundaryHour": value.get("sleepDayBoundaryHour"),
         "sourceKey": value.get("sourceKey"),
         "unit": value.get("unit"),
         "value": value.get("value"),
