@@ -1,7 +1,7 @@
-import type { SleepRecord } from '../../types/sleep'
-import type { RawHealthAutoExportRow } from './importTypes'
-import { normalizeStage } from './healthAutoExportJsonAuditor'
-import { resolveSleepSource } from '../source/resolveSleepSource'
+import type { SleepRecord } from '../../types/sleep.ts'
+import type { RawHealthAutoExportRow } from './importTypes.ts'
+import { normalizeStage } from './healthAutoExportJsonAuditor.ts'
+import { resolveSleepSource } from '../source/resolveSleepSource.ts'
 
 export function normalizeHealthAutoExportSleepRows(
   rows: RawHealthAutoExportRow[],
