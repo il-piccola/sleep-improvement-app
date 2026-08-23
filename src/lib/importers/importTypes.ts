@@ -1,4 +1,4 @@
-import type { NormalizedSleepStage, SleepRecord } from '../../types/sleep'
+import type { NormalizedSleepStage, SleepRecord } from '../../types/sleep.ts'
 
 export type ImportStatus = 'usable' | 'needs_settings' | 'insufficient'
 
