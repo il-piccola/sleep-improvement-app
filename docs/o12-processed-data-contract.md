@@ -1,13 +1,15 @@
 # O-12 Processed Data Contract
 
-Status: **PREPARATION draft — O-12a完了後に最終確定する**  
+Status: **APPROVED — O-12b Exit Gate通過済み**  
 Phase: **O-12b — Processed Data Contract**  
+Schema version: **1.0.0**  
 Baseline: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
-Progress: [`o12-progress.md`](./o12-progress.md)
+Progress: [`o12-progress.md`](./o12-progress.md)  
+Migration source map: [`o12-migration-source-map.md`](./o12-migration-source-map.md)
 
 ## 1. 目的
 
-この文書は、Data Processorが生成し、Sleep Compassおよび他のアプリケーションが読み取る **Processed Data Contract** のO-12bドラフトです。
+この文書は、Data Processorが生成し、Sleep Compassおよび他のアプリケーションが読み取る **Processed Data Contract** の正式契約です。
 
 O-12の依存方向は次の一方向とします。
 
@@ -28,7 +30,7 @@ Processed DataはSleep Compass内部の一時キャッシュではなく、長�
 - `DATA_CONTRACT.md`: 既存入力形式と `SleepRecord[]` 正規化の互換仕様
 - 本文書: Data Processorが外部へ公開する加工済み出力の正式契約
 
-O-12aが未完了のため、実際のN100ローカル状態やFirestore実在データに依存する移行項目は暫定です。契約の構造、versioning、provenance、snapshot方式は先行して定義します。
+O-12a current-state auditの結果は本契約と [`o12-migration-source-map.md`](./o12-migration-source-map.md) へ反映済みです。N100固有path、Cloud resource ID、Firestore運用履歴などの環境固有情報はcanonical schemaへ混入させず、migration/runtime inventoryとして分離します。
 
 ## 2. 設計原則
 
@@ -376,7 +378,7 @@ Processed Dataではhealth sleep-window metricとSleep Compassの双方が利用
 - `supplemental`
 - `unknown`
 
-優先順位は次を基本案とします。
+優先順位は次を正式ルールとします。
 
 1. sleep day内のmain sleep
 2. evening window内で開始
@@ -387,9 +389,9 @@ Processed Dataではhealth sleep-window metricとSleep Compassの双方が利用
 
 ### main sleep rule
 
-O-12bのcanonical案は **sleep dayごとの最長blockをmain sleepとする** です。同長の場合は開始時刻が早いblock、それでも同じ場合は `blockId` lexical orderで決定します。
+O-12bのcanonical ruleは **sleep dayごとの最長blockをmain sleepとする** です。同長の場合は開始時刻が早いblock、それでも同じ場合は `blockId` lexical orderで決定します。
 
-これは現行Webがsleep day内で実質的に最長blockを主睡眠候補として表示する動作に合わせるためです。
+これは現行Webがsleep day内で実質的に最長blockを主睡眠候補として表示する動作に合わせます。
 
 ## 12. sleep-days.jsonl
 
@@ -559,7 +561,7 @@ derived dataの意味に影響する設定はmanifestへ必ず保存します。
 - `mainSleepRule`
 - `sourceIntegrationPolicyVersion`
 
-### 現行実装差異としてO-12bで解消が必要な点
+### 現行実装差異とcanonical解決
 
 現在のWebとCloud sleep-window処理にはblock分類ルールの差があります。
 
@@ -568,7 +570,7 @@ derived dataの意味に影響する設定はmanifestへ必ず保存します。
 - Cloud sleep-window集計は `merge=30`、`nap<90`、`evening>=16` を固定値で使い、最長blockをmainとしている。
 - Cloud側の現行main判定は処理対象全体の最長blockを選ぶ実装であり、multi-day処理時のcanonical ruleにはそのまま採用しない。
 
-O-12 canonical ruleは、同じprocessing configをProcessor内のsleep blockとsleep-window metricの双方で共有し、**sleep dayごとに一貫した分類**を使うこととします。
+O-12 canonical ruleは、同じprocessing configをProcessor内のsleep blockとsleep-window metricの双方で共有し、**sleep dayごとに一貫した分類**を使います。
 
 ## 18. Deterministic ordering
 
@@ -698,11 +700,11 @@ Firestoreのserver timestamp、sync run、ingest batch等は、raw sourceからb
 - 現行raw sourceから再現可能なら `rebuild`
 - 運用履歴として残す価値があるが計算不要なら `archive`
 
-O-12a実機監査後に実在dataset/countをこのclassificationへ反映します。
+O-12a current-state auditで実在database/resource categoryは確認済みです。document count/history preservation要否はO-12eで確定します。
 
 ## 24. Snapshot validation / contract test
 
-O-12b Exit Gate前に最低限次をtest可能にします。
+O-12bでは次のtest caseを**実装可能な契約要件**として確定します。実際のtest implementation/executionはO-12c/O-12dで行います。
 
 ### Schema
 
@@ -765,30 +767,33 @@ O-12b Exit Gate前に最低限次をtest可能にします。
 | local `health-store.json` | migration input | canonical outputではない |
 | local `processed-files.json` | migration input / local processor state | canonical outputではない |
 
-## 26. O-12a完了後に確認して確定する項目
+## 26. O-12a current-state audit反映
 
-次は `CX-O12A-001` の結果を受けて最終確認します。
+O-12aで次を確認し、本契約のportable schemaとmigration policyへ反映しました。
 
-- 実際に存在するlocal `health-store.json` / `processed-files.json` の有無と件数
-- raw Health Auto Export file coverage
-- 実在Firestore database metadata
-- 実在Cloud resourceと、migration sourceとして残す必要があるresource category
-- 現在のlocal data pathがcontractに混入していないこと
+- N100のraw sourceはOS-visibleで、現在の観測pathは `L:\マイドライブ\Health Auto Export`。`Sleep` directoryも存在する。
+- `L:` / `マイドライブ` / absolute pathは環境境界であり、canonical IDやschemaへ含めない。
+- repo直下の `server-data` は現時点でABSENT。`health-store.json` / `processed-files.json` を必須migration sourceと仮定しない。
+- Firestore実在databaseは `(default)` / `asia-northeast1` / `FIRESTORE_NATIVE`。
+- Firestore既知categoryは `sleep_records`, `health_metric_records`, `processed_drive_files`, `drive_sync_runs`, `ingest_batches`, `metric_audit_summaries`。
+- Cloud runtime/operational resourceは [`o12-migration-source-map.md`](./o12-migration-source-map.md) へ分離して管理する。
+- Cloud Run `maya-daily-observation-console` は用途不明だが棚卸し済みで、Processed Data schemaとは無関係。O-12j dedicated-project判定前の再確認対象とし、停止・削除しない。
 
-これらが契約のportable schema自体を変更する必要は原則ありませんが、legacy reader / migration manifestの対象一覧には反映します。
+未確認のFirestore document countやhistorical preservation要否はschema未確定事項ではなく、O-12e migration executionの判断事項です。
 
-## 27. O-12b完了条件
+## 27. O-12b完了判定
 
-O-12bをCOMPLETEにするには次をすべて満たします。
+O-12b Exit Gateを **COMPLETE** とします。
 
-1. O-12aがCOMPLETEである。
-2. 本文書のschema / versioning / provenanceが確定している。
-3. canonical dataset一覧が確定している。
-4. snapshot publication / completion marker / retention ruleが確定している。
-5. legacy reader policyが確定している。
-6. migration manifest形式が確定している。
-7. Web/Cloud/localの既存schemaとの対応が説明できる。
-8. contract test caseが実装可能な粒度で定義されている。
-9. 未解決の重要データ形式が残っていない、または明示的にmigration blockerとして記録されている。
+- [x] O-12a current-state audit完了
+- [x] schema / versioning / provenance確定
+- [x] canonical dataset一覧確定
+- [x] snapshot publication / completion marker / retention rule確定
+- [x] legacy reader policy確定
+- [x] migration manifest形式確定
+- [x] Web/Cloud/local既存schemaとの対応を定義
+- [x] contract test caseを実装可能な粒度で定義
+- [x] machine-readable JSON Schema `1.0.0` を確定
+- [x] 未解決resource/data issueを後続gateへ明示的に引き継ぎ
 
-O-12a完了前はこの文書を **PREPARATION draft** として扱い、O-12cの実装へは進みません。
+これ以降、O-12cのProcessor独立化は本契約 `1.0.0` を実装境界として進めます。breaking changeが必要になった場合はVersioning policyに従い、黙ってcontract意味を変更しません。
