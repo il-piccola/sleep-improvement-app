@@ -1,111 +1,145 @@
 # O-12 Migration Source Map
 
-Status: **ACTIVE — O-12a inventory反映済み、O-12eで分類確定に使用**  
-Primary phase: **O-12b / O-12e準備**  
-Updated: **2026-08-23**
+Status: **ACTIVE — O-12e分類確定済み / 実evidence取得待ち**  
+Primary phase: **O-12e — Existing-data migration**  
+Updated: **2026-08-24**
 
-この文書はO-12aで確認したraw/local/Cloud資産を、O-12eの `Rebuild / Migrate / Archive` 判断へ引き継ぐためのsource mapです。
+この文書はO-12a inventoryからO-12eの `Rebuild / Migrate / Archive` を確定し、O-12jまで削除禁止境界を維持するsource mapです。
 
-健康値そのもの、Secret payload、token、OAuth credential、Firestore document本文は記録しません。
+健康値そのもの、Secret payload、token、OAuth credential、Firestore document本文はこの文書へ記録しません。
 
 ## 1. 分類の意味
 
-- **Rebuild**: canonical raw sourceから再生成可能で、Processed Dataへ再構築するもの
-- **Migrate**: raw sourceだけでは十分に再現できず、現存data/stateから移行が必要なもの
-- **Archive**: runtimeには不要だが、履歴・監査証拠として保存価値があるもの
-- **Runtime-only**: user dataそのものではなく、最終的にCloud runtime撤去対象となるもの
-- **Unclassified**: 用途が未確認で、削除/停止判断をしてはいけないもの
+- **Rebuild**: canonical raw sourceまたは同等semantic evidenceからProcessed Dataへ再生成できるもの
+- **Migrate**: raw sourceだけでは再現できず、現存data/stateから変換が必要なもの
+- **Archive**: runtimeには不要だが、履歴・監査証拠としてprivate保存するもの
+- **Runtime-only**: user dataではなく、後続phaseでCloud runtime撤去対象となるもの
+- **Unclassified**: 用途未確認。停止・削除してはいけないもの
 
 ## 2. Raw / local sources
 
-| Source | Current evidence | Candidate classification | Target / handling |
+| Source | Evidence | O-12e classification | Handling |
 | --- | --- | --- | --- |
-| Health Auto Export JSON | connected Drive + N100で存在確認 | **Rebuild** | Processor raw input。`sleep-records`, blocks, days, health metrics等を再生成 |
-| `normalized-sleep-records.json` | connected検索では未確認 | Rebuild/Migrate candidate | 発見時のみlegacy reader input |
-| Apple Health `export.xml` | connected検索では未確認 | Rebuild candidate | 発見時のみlegacy reader input |
-| local `health-store.json` | repo直下`server-data`はABSENT | Conditional Migrate | 別pathで発見された場合のみ分類 |
-| local `processed-files.json` | repo直下`server-data`はABSENT | Conditional Migrate/Archive | 発見時のみprocessor state/historyとして分類 |
+| Health Auto Export JSON | N100 + Driveで存在確認 | **Rebuild** | canonical sleep/health datasetsを再生成 |
+| `normalized-sleep-records.json` | 未確認 | Conditional Rebuild | 発見時のみlegacy reader input。未発見ならevidenceへ含めない |
+| Apple Health `export.xml` | 未確認 | Conditional Rebuild | 発見時のみlegacy reader input |
+| local `health-store.json` | repo default `server-data`はABSENT | **Rebuild if reproducible / otherwise block** | 存在時はprivate archiveを保存し、record semantic hashがcanonical `sleep-records`と一致するか確認。再現不能ならO-12eをblock |
+| local `processed-files.json` | repo default `server-data`はABSENT | **Archive** | 存在時はprivate archive。canonical runtime ledgerへそのまま移植しない |
 
-N100 raw rootの現在観測値は `L:\マイドライブ\Health Auto Export` だが、これはenvironment boundaryでありpersistent identityへ含めない。
+N100 raw rootの現在観測値は `L:\マイドライブ\Health Auto Export\Sleep`。これはhost boundaryであり、persistent identityやimplementation defaultへhardcodeしない。
 
 ## 3. Firestore data categories
 
-Firestore database metadata:
+Firestore database:
 
 - database: `(default)`
 - location: `asia-northeast1`
 - type: `FIRESTORE_NATIVE`
 
-現行codeから確認済みのcategory:
+O-12e確定分類:
 
-| Firestore category | Candidate classification | 理由 / target |
+| Firestore category | Classification | Evidence / handling |
 | --- | --- | --- |
-| `sleep_records` | **Rebuild + parity check** | raw Health Auto Exportからcanonical `sleep-records`へ再生成可能性が高い。O-12eで件数/parity確認 |
-| `health_metric_records` | **Rebuild + parity check** | Processorへhealth metric/sleep-window aggregationを回収して再生成 |
-| `processed_drive_files` | **Migrate or Archive** | 処理履歴/metadata。canonical user dataではなくprocessor state/provenanceへ必要部分だけ継承 |
-| `drive_sync_runs` | **Archive** | Cloud運用履歴。通常のProcessed Data canonicalには不要 |
-| `ingest_batches` | **Archive** | ingest運用履歴。raw sourceからbyte-for-byte再生成不要 |
-| `metric_audit_summaries` | **Migrate or Archive** | 客観audit情報のうち必要部分はdiagnosticsへ、履歴はarchive候補 |
+| `sleep_records` | **Rebuild + semantic parity** | count + common semantic projection SHA-256をlocal canonical `sleep-records`と比較。health value本文はterminalへ出さない |
+| `health_metric_records` | **Rebuild + core semantic parity** | metric/value/window/sourceのcore projectionをcount + SHA-256で比較。旧Cloudとcanonicalで意図的に違うmain-sleep分類はO-12hへ分離 |
+| `processed_drive_files` | **Archive** | raw Firestore document JSONLをprivate archiveしbyteLength/SHA-256をmigration evidenceへ記録 |
+| `drive_sync_runs` | **Archive** | private JSONL archive |
+| `ingest_batches` | **Archive** | private JSONL archive |
+| `metric_audit_summaries` | **Archive** | private JSONL archive |
 
-これはschema/codeに基づく候補分類であり、Firestore document本文はまだ読んでいない。O-12eで必要最小限の件数/内容確認を行う場合は、費用・目的・無料停止点を事前確認する。
+Firestore evidence取得は `scripts/o12e-firestore-evidence.py` でsix collection groupsをread-only scanする。
 
-## 4. GCP runtime / operational resources
+実行時:
+
+- Firestore write/delete = 0
+- document本文 / health values / user IDをterminalへ表示しない
+- archive collection本文はprivate bundle内だけに保存
+- rebuild collection本文はarchiveせずcount + semantic SHA-256だけをevidenceへ残す
+
+## 4. O-12e migration artifacts
+
+Canonical migration snapshot:
+
+```text
+snapshots/<snapshotId>/
+  ... canonical datasets ...
+  migration-manifest.json
+  complete.json
+```
+
+Private evidence archive:
+
+```text
+migration evidence ZIP
+  o12e-firestore-evidence.json
+  o12e-migration-evidence.json
+  firestore-archive/*.jsonl
+  legacy-local/*                  # local stateが存在する場合
+```
+
+private evidence ZIPはlocalとGoogle Driveの両方へ保存し、SHA-256一致を確認する。
+
+archive本文はGitへcommitしない。
+
+## 5. GCP runtime / operational resources
 
 ### Sleep Compass既知resource
 
-| Resource | Current state | Classification candidate | O-12での扱い |
+| Resource | Current state | Classification | O-12 handling |
 | --- | --- | --- | --- |
-| Cloud Run `sleep-improvement-api` | exists, `asia-northeast1` | Runtime-only | O-12h parity後、O-12iで停止候補、O-12jで撤去 |
-| Cloud Run `sleep-improvement-drive-sync-api` | exists, `asia-northeast1` | Runtime-only | O-12h後に停止、O-12j撤去 |
-| Scheduler `sleep-drive-sync-daily` | ENABLED, `asia-northeast1` | Runtime-only / operational history | O-12iで最小可逆停止対象 |
-| Artifact Registry `cloud-run-source-deploy` | DOCKER | Runtime-only / build artifact | image retention確認後O-12j撤去候補 |
-| Storage `run-sources-sleep-improvement-cloud-asia-northeast1` | exists | Runtime-only / build source artifact | user health raw sourceではないことを確認しO-12jで撤去候補 |
-| Secret `drive-sync-api-token` | exists, name only | Runtime-only | payloadは読まず、Cloud runtime不要化後にO-12j撤去候補 |
+| Cloud Run `sleep-improvement-api` | exists | Runtime-only | O-12h後、O-12i停止候補、O-12j撤去 |
+| Cloud Run `sleep-improvement-drive-sync-api` | exists | Runtime-only | 同上 |
+| Scheduler `sleep-drive-sync-daily` | ENABLED | Runtime-only / history | O-12iで可逆停止 |
+| Artifact Registry `cloud-run-source-deploy` | exists | Runtime-only | O-12j撤去候補 |
+| Storage `run-sources-sleep-improvement-cloud-asia-northeast1` | exists | Runtime-only/build source | O-12j撤去候補 |
+| Secret `drive-sync-api-token` | exists, name only | Runtime-only | payloadは読まずO-12j撤去候補 |
 | Secret `health-export-api-token` | exists, name only | Runtime-only | 同上 |
-| Firebase Hosting `sleep-improvement-cloud` | exists | Runtime-only | O-12g/hでlocal access検証後、O-12j撤去 |
-| Firebase/Auth related APIs | enabled | Runtime-only capability | local Auth dependency除去後、O-12j final audit対象 |
-| Service Accounts | count 5 | Runtime-only identities | account内容はO-12aで不要。O-12jで不要identityを最終確認 |
+| Firebase Hosting `sleep-improvement-cloud` | exists | Runtime-only | O-12g/h後にO-12j撤去 |
+| Firebase/Auth related APIs | enabled | Runtime-only capability | local dependency除去後O-12j確認 |
+| Service Accounts | count 5 | Runtime-only identities | O-12j final audit |
 
-Billingは現在 `billingEnabled: true`。O-12jより前に無効化しない。
+Billingは現在enabled。O-12jより前に無効化しない。
 
-## 5. 用途不明だが棚卸し済みのresource
+## 6. Unclassified resource
 
 ### Cloud Run `maya-daily-observation-console`
 
-O-12a read-only metadata:
+O-12a metadata:
 
-- region: `asia-northeast1`
-- creationTimestamp: `2026-05-26T01:32:37.322920Z`
-- latestReadyRevisionName: `maya-daily-observation-console-00009-vpx`
-- image source: `asia-northeast1-docker.pkg.dev/sleep-improvement-cloud/cloud-run-source-deploy/maya-daily-observation-console@sha256...`
-- Sleep Compass repository内にservice名の参照なし
+- region `asia-northeast1`
+- creationTimestamp `2026-05-26T01:32:37.322920Z`
+- latest revision `maya-daily-observation-console-00009-vpx`
+- same-name Artifact Registry image
+- Sleep Compass repository内にservice名参照なし
 
-current classification: **Unclassified / non-Sleep-Compass candidate**
+classification: **Unclassified / non-Sleep-Compass candidate**
 
 ルール:
 
-- 用途が確定するまで停止・削除・変更しない。
-- O-12aでは「存在を把握し、用途不明として明示的に保留する」ことでinventoryを完了扱いにする。
-- Sleep Compassとは別用途なら、O-12jの「projectをdedicated projectとしてshutdownできるか」の判断に直接影響する。
-- 同一projectに別用途resourceが存在する場合、project shutdownをそのまま実行してはいけない。
-- Sleep Compass関連resourceと後で判明した場合は、対応するdata/runtime分類へ追加する。
+- O-12e data migration対象ではない
+- 停止・削除・変更しない
+- O-12j dedicated-project判定前に用途再確認
+- 別用途ならproject shutdown禁止
 
-## 6. O-12b / O-12eへの引き継ぎ
+## 7. O-12e Exit Gateへの対応
 
-Processed Data Contract側ではCloud固有resource IDをcanonical schemaへ含めない。
+O-12eでは:
 
-O-12eではこのsource mapを起点として:
+1. real rawからcompleted canonical snapshotを生成
+2. local + Google Drive snapshotをvalidate
+3. local legacy state presence/absenceを確定
+4. Firestore six category evidenceを取得
+5. rebuild categoryのcount + semantic parityを確認
+6. archive categoryのpresent dataをprivate artifactとして保存
+7. evidence ZIPをGoogle Driveへ保存しSHA一致
+8. `migration-manifest.json`の`unresolved=[]`を確認
+9. Cloud dataは削除しない
 
-1. 各重要datasetを `Rebuild / Migrate / Archive` の1つへ確定
-2. source count / target count / rejected count / checksum等をmigration manifestへ記録
-3. health valuesをmigration evidenceへ直接記録しない
-4. reconstruction/parityが通るまでCloud dataを削除しない
-5. `maya-daily-observation-console` はuser data migration対象とはみなさず、O-12jのproject ownership/dedicated判定へ引き継ぐ
+## 8. 未確定事項
 
-## 7. 現在の未確定事項
+- Firestore各categoryの実document count。O-12e evidence runで確定する。
+- semantic parityの実結果。O-12e N100 final runで確定する。
+- `maya-daily-observation-console` の実用途。O-12jで再確認する。
+- Artifact Registry repositoryのfull location表示。O-12jで必要なら確認する。
 
-- `maya-daily-observation-console` の実用途。O-12j dedicated-project判定前に再確認する。
-- Artifact Registry repositoryのlocation表示が初回table出力では空欄だったこと。O-12jで必要ならfull resource nameから確認する。
-- Firestore各categoryの実document count/history preservation要否。O-12eで判断する。
-
-これらはProcessed Data schemaそのものを不安定にするものではない。O-12bのcontract確定をblockせず、該当する後続gateで明示的に扱う。
+上記のうちFirestore count/parityはO-12e Exit Gate対象。`maya`/Artifact Registry locationはO-12jへ明示的に引き継ぐ。
