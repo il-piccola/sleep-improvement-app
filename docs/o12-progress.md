@@ -1,13 +1,14 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c CODEX NEEDED（C1 COMPLETE / C2実装済み・N100検証待ち）**  
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c ACTIVE（C1 COMPLETE / C2実装済み・ENVIRONMENT再検証待ち）**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
 Migration Source Map: [`o12-migration-source-map.md`](./o12-migration-source-map.md)  
 O-12c設計: [`o12c-processor-independence.md`](./o12c-processor-independence.md)  
 C2設計: [`o12c-c2-implementation-plan.md`](./o12c-c2-implementation-plan.md)  
-C2検証: [`o12c-c2-validation.md`](./o12c-c2-validation.md)  
+C2通常検証: [`o12c-c2-validation.md`](./o12c-c2-validation.md)  
+C2低メモリ再検証: [`o12c-c2-low-memory-validation.md`](./o12c-c2-low-memory-validation.md)  
 最終更新日: **2026-08-23**
 
 この文書はO-12の中心進捗台帳です。基準文書と矛盾する場合は基準文書を優先します。
@@ -22,6 +23,7 @@ C2検証: [`o12c-c2-validation.md`](./o12c-c2-validation.md)
 - O-12h完了前にCloud operationを停止しない。
 - O-12i local-only確認前にBilling disable / project shutdownしない。
 - raw health data、secret、token、OAuth credentialをrepositoryや作業ログへ記録しない。
+- environment failureとapplication failureを分離して扱い、OS/依存不足を理由に実装を不用意に変更しない。
 
 ## 2. Phase一覧
 
@@ -29,7 +31,7 @@ C2検証: [`o12c-c2-validation.md`](./o12c-c2-validation.md)
 | --- | --- | --- |
 | O-12a | 現状監査 | **COMPLETE** |
 | O-12b | Processed Data Contract | **COMPLETE — v1.0.0** |
-| O-12c | Processor独立化 | **ACTIVE — C1 COMPLETE / C2 N100検証待ち** |
+| O-12c | Processor独立化 | **ACTIVE — C1 COMPLETE / C2 environment再検証待ち** |
 | O-12d | Processor堅牢化 | **NOT STARTED** |
 | O-12e | 既存データ移行 | **NOT STARTED** |
 | O-12f | Sleep Compass独立化 | **NOT STARTED** |
@@ -42,16 +44,21 @@ C2検証: [`o12c-c2-validation.md`](./o12c-c2-validation.md)
 
 ## 3. Exit Gate: COMPLETE
 
-- Git/repository architecture確認済み
-- Node.js `v22.23.1` / npm `10.9.8`確認済み
-- connected Drive `Health Auto Export/Sleep` raw source確認済み
-- N100 raw root観測: `L:\マイドライブ\Health Auto Export`。`L:`は観測値のみでhardcode禁止
+確認済み:
+
+- Git/repository architecture
+- Node.js `v22.23.1` / npm `10.9.8`
+- connected Drive `Health Auto Export/Sleep` raw source
+- N100 raw root観測: `L:\マイドライブ\Health Auto Export`
+- `L:`は観測値のみ。hardcode禁止
 - repo直下 `server-data: ABSENT`
 - GoogleDriveFS running
 - Tailscale Windows service Running / Automatic
 - GCP project `sleep-improvement-cloud` ACTIVE / Billing enabled
-- Cloud Run / Scheduler / Artifact Registry / Firestore / Secret names / Storage / Hosting / relevant APIsをread-only inventory済み
-- `maya-daily-observation-console` はinventory済み、Sleep Compass repo参照なし、用途不明のnon-Sleep-Compass candidate。停止・削除禁止。O-12jのproject shutdown判定前に再確認する
+- Cloud Run / Scheduler / Artifact Registry / Firestore / Secret names / Storage / Hosting / relevant APIs
+- `maya-daily-observation-console` はinventory済み、Sleep Compass repo参照なし、用途不明のnon-Sleep-Compass candidate
+
+`maya-daily-observation-console`は停止・削除禁止。O-12jのproject shutdown判定前に用途を再確認し、別用途ならproject shutdownは禁止する。
 
 # O-12b — Processed Data Contract
 
@@ -78,14 +85,14 @@ snapshot writer / atomic publicationはO-12dで実装する。
 ## 5. 実装slice
 
 1. **C1 Import boundary + one-shot — COMPLETE**
-2. **C2 Objective integration policy extraction — 実装済み / N100検証待ち**
+2. **C2 Objective integration policy extraction — 実装済み / environment再検証待ち**
 3. **C3 Cloud objective metrics回収 — 未着手**
 
 O-12dのatomic write / corruption / portable path finalization / fingerprint / watcher hardeningは混ぜない。
 
 ## 6. C1 — COMPLETE
 
-remote `master`へ実装済み:
+実装済み:
 
 - `processor/healthAutoExport.ts`: raw JSON parse/audit/normalize
 - `processor/runOnce.ts`: serverなしdirect one-shot CLI
@@ -93,34 +100,19 @@ remote `master`へ実装済み:
 - synthetic processor test
 - root scripts / Node typecheck対象更新
 
-### N100最終結果
+N100最終根拠:
 
-`CX-O12C-007`: **PASS**
-
-- branch `master`
-- start/final worktree `CLEAN`
-- root `node_modules`復旧済み
-- `cloud-api/node_modules` before: ABSENT
-- `npm ci --prefix cloud-api --include=dev`: PASS
-- `firebase-admin` after: PASS
-- `npm test`: **PASS**
-- tracked変更なし。`cloud-api/node_modules`復旧のみ
-
-C1通過根拠:
-
-- processor targeted test: PASS (`CX-O12C-006`)
-- root build: PASS (`CX-O12C-006`)
-- one-shot CLI usage: PASS / exit code 2 (`CX-O12C-006`)
-- full test: PASS (`CX-O12C-007`)
+- `CX-O12C-006`: processor targeted test PASS / build PASS / one-shot CLI PASS、exit code 2
+- `CX-O12C-007`: Cloud API依存復旧後 `npm test` PASS
 - final worktree CLEAN
 
 **C1 Exit Check: COMPLETE**
 
-## 7. C2 — 実装済み / N100検証待ち
+## 7. C2 — 実装済み / environment再検証待ち
 
-ChatGPTがremote `master`へ追加実装した。
+ChatGPTがremote `master`へ追加実装済み。
 
-### 新規Processor modules
+### Processor modules
 
 - `processor/types.ts`
   - `ProcessorConfig`
@@ -130,7 +122,7 @@ ChatGPTがremote `master`へ追加実装した。
 - `processor/sleepBlocks.ts`
   - input order非依存のdeterministic block構築
   - array indexをblock IDに使用しない
-  - canonical source key生成でabsolute `sourceFile`をidentityへ混ぜない
+  - absolute `sourceFile`をcanonical identityへ混ぜない
 - `processor/overlaps.ts`
   - full / partial overlap thresholdをProcessorConfigから取得
   - deterministic overlap ID
@@ -138,53 +130,73 @@ ChatGPTがremote `master`へ追加実装した。
   - `SleepSourcePreferenceMap` / UI preferenceを受け取らない
   - deterministic source priority
   - objective reason codeのみ。UI messageなし
-  - In Bedはactual sleep overlap時support、非overlap時fallback
+  - In Bed support/fallback
 - `processor/sleepDays.ts`
-  - `sleepDayBoundaryHour`でsleep day割当
+  - sleep day grouping
   - main sleep = sleep dayごとのlongest block
   - tie-break = duration desc → start asc → block ID lexical
-  - block type = main / evening / nap / supplemental / unknown
 - `processor/canonicalSleep.ts`
-  - blocks → overlaps → integration → sleep daysを1本のpure canonical入口へ統合
+  - blocks → overlaps → integration → sleep daysのpure canonical入口
 
 ### Test
 
-`tests/processor-canonical-integration.test.ts` を追加。
+`tests/processor-canonical-integration.test.ts` を追加し、root `test:processor`へ組み込み済み。
 
-synthetic dataのみで:
+synthetic dataのみで以下を検証対象にする:
 
-- input order変更でもcanonical block ID/result不変
-- absolute source path表現変更でもcanonical block identity不変
-- overlap 0.8 / 0.3 threshold
+- input order変更でもblock ID/result不変
+- absolute source path表現変更でもcanonical identity不変
+- overlap `0.8 / 0.3`
 - config変更によるoverlap判定変更
-- Processorに`SleepSourcePreferenceMap` / `sourcePreferences`なし
+- UI source preference経路なし
 - main sleep longest rule
 - deterministic tie-break
-- In Bed support/fallback objective reason code
-- decisionにUI `message`不要
+- In Bed support/fallback reason code
+- UI message不要
 
-root `test:processor`へC2 testを追加済み。
+既存 `src/lib/analysis/buildUnifiedSleepTimeline.ts` は変更していない。既存Web挙動を維持し、O-12fでProcessed Data consumerへ切り替える。
 
-### Web compatibility
+### CX-O12C-008
 
-C2では既存 `src/lib/analysis/buildUnifiedSleepTimeline.ts` を変更していない。
+結果: **ENVIRONMENT BLOCKEDとしてreview**  
+証拠: [`o12c-c2-validation-result-cx-o12c-008.md`](./o12c-c2-validation-result-cx-o12c-008.md)
 
-既存Web挙動を維持したままProcessor canonical pathを別に確立し、O-12fでWeb consumerをProcessed Data側へ移す。
+- branch `master`
+- start/final git status: CLEAN
+- tested SHA: `49a5cf85a639507d9b4ec2ba3b1bf7d36a5f0a7b`
+- root `tsx`: PASS
+- root `tsc`: PASS
+- `cloud-api` `firebase-admin`: PASS
+- processor targeted test: FAIL
+- **build: PASS**
+- full test: FAIL
+- **Processor forbidden import scan: PASS**
+- repository変更: なし
+- failure: `node:os:306 — uv_os_get_passwd returned ENOMEM (not enough memory)`
 
-### C2検証
+repo searchでは `node:os` / `os.userInfo()` / `os.homedir()` の直接利用は確認されなかった。
 
-`CX-O12C-008`: [`o12c-c2-validation.md`](./o12c-c2-validation.md)
+したがってC2 application/assertion failureとはまだ判定せず、Node OS API probeとC2単独testで再確認する。
 
-- latest `master`へff-only
-- 既存root/cloud-api dependenciesを再利用
-- `npm run test:processor`
-- `npm run build`
-- `npm test`
-- Processor forbidden import scan
-- final worktree CLEAN
-- code/docs編集・package install禁止
+### 次の検証
 
-C2 PASSまではC3コードを重ねない。
+`CX-O12C-009`: [`o12c-c2-low-memory-validation.md`](./o12c-c2-low-memory-validation.md)
+
+- Node `os.userInfo()` / `os.homedir()` probe。ただし値は出力しない
+- read-only memory/pagefile inventory
+- C2 targeted testだけを単独実行
+- C2 PASS後のみC1 processor regression
+- その後のみfull test
+- `CX-O12C-008`でPASS済みのbuild/forbidden scanは再実行しない
+- package install / code edit / process kill / Windows設定変更は禁止
+
+判定:
+
+- OS API probe自体がENOMEM: **ENVIRONMENT BLOCKED**
+- C2 test assertion/application error: **C2 FAIL**としてChatGPTが修正
+- targeted + C1 regression + full test PASS: `CX-O12C-008`のbuild/forbidden scan PASSと合わせて **C2 COMPLETE**
+
+C2 COMPLETE前にC3コードを開始しない。
 
 ## 8. C3 — 未着手
 
@@ -210,12 +222,12 @@ C2 PASS後にCloud側pure logicをProcessorへ回収する。
 - [x] C1 root build PASS
 - [x] C1 one-shot CLI usage PASS / exit 2
 - [x] C1 full test PASS
-- [ ] C2 canonical source integrationがUI preferenceから独立 — **実装済み、検証待ち**
-- [ ] C2 canonical block/sleep-day ruleがv1.0.0と一致 — **実装済み、検証待ち**
+- [ ] C2 canonical source integrationがUI preferenceから独立 — **実装済み / runtime再検証待ち**
+- [ ] C2 canonical block/sleep-day ruleがv1.0.0と一致 — **実装済み / runtime再検証待ち**
 - [ ] daily health metricsがProcessor側で生成可能
 - [ ] sleep-window health metricsがProcessor側で生成可能
 - [ ] watcher/serverがProcessor Core adapterとして動作確認
-- [ ] Processor CoreにReact/Firebase/Cloud Run/Firestore/Tailscale/Drive API依存なし
+- [x] Processor forbidden import scan PASS (`CX-O12C-008`)
 - [ ] O-12c final targeted/full tests + build PASS
 
 # O-12d〜O-12j 安全順序
@@ -234,7 +246,7 @@ C2 PASS後にCloud側pure logicをProcessorへ回収する。
 
 | ID | Phase | 状態 | 結果 |
 | --- | --- | --- | --- |
-| `GPT-O12A-001..014` | O-12a | COMPLETE | repo/Drive/N100/GCP inventory完了 |
+| `GPT-O12A-001..014` | O-12a | COMPLETE | repo/Drive/N100/GCP inventory |
 | `GCP-O12A-001..002` | O-12a | PASS | GCP/Billing + `maya` metadata inventory |
 | `GPT-O12B-PREP-001..008` | O-12b | COMPLETE | contract設計/schema/inventory反映 |
 | `GPT-O12B-FINAL-001` | O-12b | COMPLETE | v1.0.0 Exit Gate |
@@ -242,16 +254,17 @@ C2 PASS後にCloud側pure logicをProcessorへ回収する。
 | `GPT-O12C-002` | O-12c | COMPLETE | C1 remote implementation |
 | `CX-O12C-001..005` | O-12c | CLOSED | worktree hygiene / environment前処理 |
 | `CX-O12C-006` | O-12c | PARTIAL PASS | processor test/build/CLI PASS |
-| `CX-O12C-007` | O-12c | PASS | Cloud API依存復旧 + full test PASS、C1 COMPLETE |
-| `GPT-O12C-003` | O-12c | COMPLETE | C2 canonical objective integration remote implementation |
-| `CX-O12C-008` | O-12c | READY | C2 N100 targeted/build/full/依存境界検証 |
+| `CX-O12C-007` | O-12c | PASS | full test PASS、C1 COMPLETE |
+| `GPT-O12C-003` | O-12c | COMPLETE | C2 canonical objective integration実装 |
+| `CX-O12C-008` | O-12c | ENVIRONMENT BLOCKED | build/forbidden scan PASS、test実行中Node ENOMEM |
+| `CX-O12C-009` | O-12c | READY | Node OS probe + C2低メモリ再検証 |
 
 ## 11. 現在の次作業
 
 ### Codex
 
-`CX-O12C-008`のみ。C2のtest/build/full test + forbidden import scan。編集禁止。
+`CX-O12C-009`のみ。コード編集なし。Node OS probe → memory inventory → C2単独test → C1 regression → full test。
 
 ### ChatGPT
 
-`CX-O12C-008`をreviewする。PASSならC2を閉じてC3実装へ進む。FAILなら最初のfailureだけを根拠にremote側を修正する。
+`CX-O12C-009`をreviewする。C2 application failureならremote側を修正、environment ENOMEMならコードを変更せず環境対策へ分離する。PASSならC2を閉じ、C3実装へ進む。
