@@ -1,6 +1,6 @@
 # O-12 Migration Source Map
 
-Status: **PREPARATION — O-12a未説明resource分類後に確定**  
+Status: **ACTIVE — O-12a inventory反映済み、O-12eで分類確定に使用**  
 Primary phase: **O-12b / O-12e準備**  
 Updated: **2026-08-23**
 
@@ -68,20 +68,27 @@ Firestore database metadata:
 
 Billingは現在 `billingEnabled: true`。O-12jより前に無効化しない。
 
-## 5. 未説明resource
+## 5. 用途不明だが棚卸し済みのresource
 
 ### Cloud Run `maya-daily-observation-console`
 
+O-12a read-only metadata:
+
 - region: `asia-northeast1`
+- creationTimestamp: `2026-05-26T01:32:37.322920Z`
+- latestReadyRevisionName: `maya-daily-observation-console-00009-vpx`
+- image source: `asia-northeast1-docker.pkg.dev/sleep-improvement-cloud/cloud-run-source-deploy/maya-daily-observation-console@sha256...`
 - Sleep Compass repository内にservice名の参照なし
-- current classification: **Unclassified**
+
+current classification: **Unclassified / non-Sleep-Compass candidate**
 
 ルール:
 
-- 用途が判明するまで停止・削除・変更しない。
+- 用途が確定するまで停止・削除・変更しない。
+- O-12aでは「存在を把握し、用途不明として明示的に保留する」ことでinventoryを完了扱いにする。
 - Sleep Compassとは別用途なら、O-12jの「projectをdedicated projectとしてshutdownできるか」の判断に直接影響する。
 - 同一projectに別用途resourceが存在する場合、project shutdownをそのまま実行してはいけない。
-- Sleep Compass関連resourceであれば、対応するdata/runtime分類へ追加する。
+- Sleep Compass関連resourceと後で判明した場合は、対応するdata/runtime分類へ追加する。
 
 ## 6. O-12b / O-12eへの引き継ぎ
 
@@ -93,12 +100,12 @@ O-12eではこのsource mapを起点として:
 2. source count / target count / rejected count / checksum等をmigration manifestへ記録
 3. health valuesをmigration evidenceへ直接記録しない
 4. reconstruction/parityが通るまでCloud dataを削除しない
-5. `maya-daily-observation-console` を含む未説明resourceが残る場合はCloud完全撤去gateをblockする
+5. `maya-daily-observation-console` はuser data migration対象とはみなさず、O-12jのproject ownership/dedicated判定へ引き継ぐ
 
 ## 7. 現在の未確定事項
 
-- `maya-daily-observation-console` の用途/由来
-- Artifact Registry repositoryのlocation表示が今回のtable出力では空欄だったこと。O-12jで必要ならfull resource nameから確認する。
+- `maya-daily-observation-console` の実用途。O-12j dedicated-project判定前に再確認する。
+- Artifact Registry repositoryのlocation表示が初回table出力では空欄だったこと。O-12jで必要ならfull resource nameから確認する。
 - Firestore各categoryの実document count/history preservation要否。O-12eで判断する。
 
-これらはProcessed Data schemaそのものを不安定にするものではないが、migration/Cloud exit判断には反映が必要。
+これらはProcessed Data schemaそのものを不安定にするものではない。O-12bのcontract確定をblockせず、該当する後続gateで明示的に扱う。
