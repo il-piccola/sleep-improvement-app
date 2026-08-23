@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import type { SleepRecord } from '../src/types/sleep.ts'
 import { processCanonicalSleep } from '../processor/canonicalSleep.ts'
+import { getCanonicalRecordId } from '../processor/sleepBlocks.ts'
 import { buildProcessorSleepDays } from '../processor/sleepDays.ts'
 import { detectProcessorOverlaps } from '../processor/overlaps.ts'
 import {
@@ -32,6 +33,10 @@ function testDeterministicIdsIgnoreInputOrderAndAbsoluteSourcePath(): void {
   assert.deepEqual(
     left.candidateBlocks.map((block) => block.blockId),
     right.candidateBlocks.map((block) => block.blockId),
+  )
+  assert.deepEqual(
+    left.candidateBlocks.map((block) => block.sourceRecordIds),
+    right.candidateBlocks.map((block) => block.sourceRecordIds),
   )
   assert.deepEqual(left.integration.adoptedBlockIds, right.integration.adoptedBlockIds)
   assert.equal(left.candidateBlocks[0]?.sourceKeys[0], 'unknown_source')
@@ -85,7 +90,9 @@ function testMainSleepUsesLongestBlockPerSleepDay(): void {
   })
 
   assert.equal(result.sleepDays.length, 1)
-  assert.equal(result.sleepDays[0]?.mainBlockId, 'long')
+  assert.equal(result.sleepDays[0]?.mainSleepBlockId, 'long')
+  assert.equal(result.sleepDays[0]?.blockCount, 2)
+  assert.equal(result.sleepDays[0]?.longestBlockMinutes, 300)
   assert.equal(result.blocks.find((item) => item.blockId === 'long')?.blockType, 'main')
 }
 
@@ -100,7 +107,7 @@ function testMainSleepTieBreakIsDeterministic(): void {
     config: DEFAULT_PROCESSOR_CONFIG,
   })
 
-  assert.equal(result.sleepDays[0]?.mainBlockId, 'earlier')
+  assert.equal(result.sleepDays[0]?.mainSleepBlockId, 'earlier')
 }
 
 function testInBedSupportAndFallbackReasonsAreObjective(): void {
@@ -110,8 +117,10 @@ function testInBedSupportAndFallbackReasonsAreObjective(): void {
     record('fallback', 'in_bed', 'iphone', '2026-08-21T13:00:00+09:00', '2026-08-21T14:00:00+09:00'),
   ]
   const result = processCanonicalSleep(records)
-  const supportBlock = result.candidateBlocks.find((item) => item.sourceRecordIds.includes('support'))
-  const fallbackBlock = result.candidateBlocks.find((item) => item.sourceRecordIds.includes('fallback'))
+  const supportRecordId = getCanonicalRecordId(records[1])
+  const fallbackRecordId = getCanonicalRecordId(records[2])
+  const supportBlock = result.candidateBlocks.find((item) => item.sourceRecordIds.includes(supportRecordId))
+  const fallbackBlock = result.candidateBlocks.find((item) => item.sourceRecordIds.includes(fallbackRecordId))
 
   assert.equal(
     result.integration.blockDecisions.find((item) => item.blockId === supportBlock?.blockId)?.reasonCode,
