@@ -1,13 +1,15 @@
 import { createServer, type ServerResponse } from 'node:http'
 import { loadHealthImportConfig } from './config.ts'
-import { loadHealthStore } from './healthStore.ts'
+import { loadHealthStore, loadHealthStoreWithStatus } from './healthStore.ts'
 import { createHealthExportWatcher } from './watchHealthExports.ts'
 import { loadProcessedFiles } from './processedFiles.ts'
 
 const config = loadHealthImportConfig()
 const watcher = createHealthExportWatcher(config)
 
-await watcher.start()
+if (config.watchEnabled) {
+  await watcher.start()
+}
 
 const server = createServer(async (request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*')
@@ -45,18 +47,24 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/import-status') {
-      const store = await loadHealthStore(config.dataDir)
-      const processedFiles = await loadProcessedFiles(config.dataDir)
+      const store = await loadHealthStoreWithStatus(config.dataDir)
+      const processedFiles = await loadProcessedFiles(config.dataDir, config.watchDir)
       sendJson(response, {
         ...watcher.status,
+        watchEnabled: config.watchEnabled,
         watchDir: config.watchDir,
         scanIntervalMs: config.scanIntervalMs,
         usePolling: config.usePolling,
         pollIntervalMs: config.pollIntervalMs,
         awaitWriteStabilityMs: config.awaitWriteStabilityMs,
-        latestImport: store.latestImport,
-        importHistory: store.importHistory,
+        dataDir: config.dataDir,
+        processedDataDir: config.processedDataDir,
+        processedDataBackupDir: config.processedDataBackupDir,
+        healthStoreLoadStatus: store.status,
+        latestImport: store.state.latestImport,
+        importHistory: store.state.importHistory,
         processedFiles: processedFiles.files.slice(0, 20),
+        processedFileCount: processedFiles.files.length,
       })
       return
     }
@@ -97,7 +105,11 @@ const server = createServer(async (request, response) => {
 
 server.listen(config.serverPort, '0.0.0.0', () => {
   console.log(`Health import server listening on http://0.0.0.0:${config.serverPort}`)
-  console.log(`Watching ${config.watchDir}`)
+  console.log(
+    config.watchEnabled
+      ? `Watching ${config.watchDir}`
+      : `Health export watcher disabled; standalone rescan remains available`,
+  )
 })
 
 process.on('SIGINT', () => {
