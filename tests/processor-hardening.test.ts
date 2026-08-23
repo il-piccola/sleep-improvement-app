@@ -143,16 +143,33 @@ async function testStandaloneWatcherRescan(): Promise<void> {
     HEALTH_IMPORT_DATA_DIR: dataDir,
     PROCESSED_DATA_DIR: join(root, 'watcher-processed'),
   })
-  const watcher = createHealthExportWatcher(config)
+  let importCalls = 0
+  const watcher = createHealthExportWatcher(config, async () => {
+    importCalls += 1
+    return {
+      importedAt: '2026-08-24T00:00:00.000Z',
+      state: {
+        latestImport: {
+          readFileCount: 1,
+          newRecordCount: 2,
+          duplicateSkippedCount: 0,
+          rejectedRows: 0,
+          warningCount: 0,
+        },
+      },
+    }
+  })
   const first = await watcher.rescan()
   assert.equal(first.isWatching, false)
   assert.equal(first.importedCount, 1)
   assert.equal(first.failedCount, 0)
   assert.equal(first.latestStats?.readFileCount, 1)
+  assert.equal(importCalls, 1)
 
   const second = await watcher.rescan()
   assert.equal(second.skippedCount, 1)
   assert.equal(second.latestStats?.readFileCount, 0)
+  assert.equal(importCalls, 1)
 
   const ledger = await loadProcessedFiles(dataDir, rawRoot)
   assert.equal(ledger.files[0]?.relativePath, 'sleep.json')
