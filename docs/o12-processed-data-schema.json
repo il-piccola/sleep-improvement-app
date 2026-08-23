@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:sleep-compass:processed-data:1.0.0",
   "title": "Sleep Compass O-12 Processed Data Contract",
-  "description": "O-12b PREPARATION schema definitions. Final approval waits for O-12a completion.",
+  "description": "O-12b approved schema definitions for Processed Data Contract v1.0.0.",
   "$defs": {
     "DatasetDescriptor": {
       "type": "object",
