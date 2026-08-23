@@ -1,112 +1,104 @@
 # O-12c C2 Objective Integration 実装計画
 
-Status: **PREPARATION — C1検証PASS後に実装**  
-Phase: **O-12c — Processor independence**  
-Updated: **2026-08-23**
+Status: **IMPLEMENTED — N100検証待ち**  
+Phase: **O-12c — Processor independence / C2**  
+Updated: **2026-08-23**  
+Validation: [`o12c-c2-validation.md`](./o12c-c2-validation.md)
 
 ## 1. 目的
 
 canonical sleep integrationをSleep Compass UI preferenceから切り離し、Processed Data Contract v1.0.0に沿うdeterministicなProcessor policyへ移す。
 
-C1未検証中はこの文書だけを確定し、C2 codeは積まない。
+C1は`CX-O12C-007`でCOMPLETE。C2コードはremote `master`へ実装済みで、現在はN100 test/build検証待ち。
 
-## 2. 現行問題
+## 2. 解消対象
 
-### `buildUnifiedSleepTimeline.ts`
+### 既存Web側
 
-- `SleepSourcePreferenceMap` をcanonical integration判断へ直接使う。
-- `primary / fallback / ignored` がUI設定由来。
-- integration logに日本語UI messageを埋め込む。
-- winner selectionがsource quality + preferenceへ依存する。
+`src/lib/analysis/buildUnifiedSleepTimeline.ts`には次のUI/runtime責務がある。
 
-### `buildSleepBlocks.ts`
+- `SleepSourcePreferenceMap`
+- `primary / fallback / ignored`ユーザー設定
+- 日本語integration message
+- source quality + preferenceによるwinner selection
 
-- block IDが `sleep-block-${index}` でarray order依存。
-- `AnalysisConfig` 全体を受け、Processorに不要なUI/score設定まで同じ型へ混在する。
+C2ではこの既存Web関数を直接置換せず、Processor側へ別のcanonical pure pathを追加した。
 
-### `detectSleepOverlaps.ts`
+### 既存block / overlap
 
-- full duplicate `0.8` / partial `0.3` がmodule定数固定。
-- thresholdがmanifest processing config/provenanceと直接結び付いていない。
+- Web block IDの`array index`依存
+- overlap threshold `0.8 / 0.3` module固定
+- `AnalysisConfig`にUI/score設定が混在
+- main sleep判定のruntime差
 
-### sleep-day / main sleep
+これらをProcessor専用config / deterministic identityへ分離した。
 
-- `groupBySleepDay` はsleep-day groupingとして再利用可能だが`AnalysisConfig`型へ依存する。
-- current summary/classificationはSleep Compass score/UI向け処理を含む。
-- canonical main sleepは **sleep dayごとのlongest block**、同長ならstart、さらに同じならdeterministic block ID lexical orderで決める。
+## 3. 実装済みProcessor型
 
-## 3. C2で新設するProcessor型
+`processor/types.ts`:
 
-候補: `processor/types.ts`
+- `ProcessorConfig`
+- `SourceIntegrationPolicy`
+- `ProcessorSleepBlock`
+- `ProcessorOverlap`
+- `ProcessorIntegrationResult`
+- `ClassifiedProcessorSleepBlock`
+- `ProcessedSleepDay`
 
-```ts
-export type ProcessorConfig = {
-  timeZone: string
-  sleepDayBoundaryHour: number
-  mergeGapMinutes: number
-  napCandidateMaxMinutes: number
-  eveningSleepStartHour: number
-  eveningSleepEndHour: number
-  mainSleepRule: 'longest_block_per_sleep_day'
-  sourceIntegrationPolicyVersion: string
-  fullDuplicateOverlapRatio: number
-  partialOverlapRatio: number
-}
+v1既定config:
 
-export type SourceIntegrationPolicy = {
-  version: string
-  sourcePriority: 'quality_then_source_key'
-  unknownSourceMode: 'usable'
-  inBedMode: 'fallback_when_no_sleep_overlap'
-  partialOverlapMode: 'single_winner_pending'
-}
+```text
+timeZone: Asia/Tokyo
+sleepDayBoundaryHour: 18
+mergeGapMinutes: 30
+napCandidateMaxMinutes: 90
+eveningSleepStartHour: 16
+eveningSleepEndHour: 22
+mainSleepRule: longest_block_per_sleep_day
+sourceIntegrationPolicyVersion: 1
+fullDuplicateOverlapRatio: 0.8
+partialOverlapRatio: 0.3
 ```
 
 UIの`SleepSourcePreferenceMap`はProcessor型へ入れない。
 
 ## 4. 実装単位
 
-### A. deterministic block builder
+### A. `processor/sleepBlocks.ts`
 
-候補: `processor/sleepBlocks.ts`
+- normalized `SleepRecord[]`をsource/kind単位でdeterministicにmerge
+- `mergeGapMinutes`をProcessorConfigから取得
+- block IDはSHA-256ベースのlogical content identity
+- array index不使用
+- absolute `sourceFile`をcanonical source key / block IDへ混ぜない
+- input順に依存しないoutput ordering
 
-- normalized `SleepRecord[]` をsource単位でmerge。
-- `mergeGapMinutes` はProcessorConfigから受ける。
-- block IDはsource record IDs + start/end + policy version等の論理内容からSHA-256等で生成する。
-- absolute path / array indexをIDへ含めない。
-- output orderingを固定する。
+### B. `processor/overlaps.ts`
 
-既存`buildSleepBlocks.ts`はSleep Compass wrapperとして残してよい。C2で巨大置換しない。
+- overlap ratioをshorter block基準で計算
+- `fullDuplicateOverlapRatio` / `partialOverlapRatio`をconfig化
+- deterministic overlap ID
+- UI表示文言を生成しない
 
-### B. overlap detection
-
-候補: `processor/overlaps.ts`
-
-- overlap ratio計算自体は現行logicと同義。
-- `fullDuplicateOverlapRatio` / `partialOverlapRatio`を引数化。
-- candidate IDもdeterministicにする。
-- `timeRangeLabel`のようなUI表示文言はcanonical outputへ必須にしない。
-
-### C. source integration
-
-候補: `processor/integrateSleep.ts`
+### C. `processor/integrateSleep.ts`
 
 入力:
 
-- deterministic blocks
+- Processor sleep blocks
 - overlap candidates
 - `SourceIntegrationPolicy`
-- ProcessorConfig
+- `ProcessorConfig`
 
 出力:
 
 - adopted block IDs
 - excluded duplicate IDs
 - pending overlap IDs
+- support IDs
 - record integration status
 - objective reason code
 
-reason code例:
+reason code:
 
 - `independent`
 - `full_duplicate_lower_priority`
@@ -116,54 +108,62 @@ reason code例:
 
 日本語messageは生成しない。
 
-### D. source priority
+初期priorityはdeterministicに:
 
-初期canonical policyはUI設定を使わずdeterministicにする。
-
-優先材料候補:
-
-1. detailed sleep stagesを持つsource
+1. detailed stage coverage
 2. actual timestamp coverage
-3. non-manual/non-in-bed primary sleep data
-4. source key lexical orderを最終tie-breaker
+3. non-manual source
+4. source key lexical
+5. block ID lexical
 
-既存`evaluateSourceQuality()`をそのままcanonical truthにする場合は、内部に現在時刻依存やUI recommended-use依存がないか再確認してから採用する。現在の`buildUnifiedSleepTimeline`は`new Date()`を使うため、そのままProcessorへ持ち込まない。
+UI preferenceは使用しない。
 
-### E. sleep day + main sleep
+### D. `processor/sleepDays.ts`
 
-候補: `processor/sleepDays.ts`
+- `sleepDayBoundaryHour`でsleep dayを割当
+- main sleep = sleep dayごとのlongest block
+- tie-break = duration desc → start asc → block ID lexical
+- block type = `main / evening / nap / supplemental / unknown`
+- fragmentation / circadian scoreは生成しない
 
-- `sleepDayBoundaryHour`でgrouping。
-- 1 sleep day内でlongest blockをmainにする。
-- tie-break: duration desc → start asc → blockId lexical。
-- `blockType`: `main / evening / nap / supplemental / unknown`。
-- fragmentation/circadian scoreは生成しない。
+### E. `processor/canonicalSleep.ts`
+
+次のpure pipelineを1本の入口へ統合:
+
+```text
+SleepRecord[]
+  → deterministic blocks
+  → overlaps
+  → source integration
+  → sleep day / main sleep / block type
+```
+
+React / HTTP / Firebase / Firestore / Tailscale / Drive APIを要求しない。
 
 ## 5. Web compatibility
 
-C2では既存React UIを壊さない。
+C2では既存React UIを変更しない。
 
-推奨:
-
-- Processor canonical integrationを新規pure moduleとして追加。
-- existing `buildUnifiedSleepTimeline()`は当面UI用wrapperとして維持。
-- O-12fでWebがProcessed Dataを読む段階でUI preferenceをpresentation/filterへ限定する。
-
-UI preferenceをcanonical Processor resultへ逆流させない。
+`buildUnifiedSleepTimeline()`は当面Web compatibility pathとして維持する。O-12fでWebをProcessed Data consumerへ移行するとき、UI preferenceはpresentation/filter側へ限定する。
 
 ## 6. Test
 
-synthetic dataのみで最低限:
+`tests/processor-canonical-integration.test.ts`を追加済み。
 
-1. input order変更でもblock ID/resultが同じ。
-2. absolute source file path表現が変わってもcanonical identityが不必要に変わらない。
-3. 80% threshold以上をfull duplicateとして分類。
-4. 30% threshold以上80%未満をpartial overlapとして分類。
-5. threshold config変更がresultとprovenanceへ反映される。
-6. UI source preference変更をProcessorへ渡す経路が存在しない。
-7. 同一sleep dayのlongest blockがmain。
-8. main tie-breakがdeterministic。
-9. reason codeにUI messageを必要としない。
+synthetic dataのみで:
+
+1. input order変更でもblock ID/resultが同じ
+2. absolute source path表現変更でもcanonical block identityが変わらない
+3. 80%以上をfull duplicate
+4. 30%以上80%未満をpartial overlap
+5. threshold config変更が判定へ反映
+6. Processorに`SleepSourcePreferenceMap` / `sourcePreferences`なし
+7. 同一sleep dayのlongest blockがmain
+8. main tie-breakがdeterministic
+9. In Bed support/fallback reason code
+10. decisionにUI message不要
+
+root `test:processor`へC2 testを追加済み。
 
 ## 7. C2でやらないこと
 
@@ -175,11 +175,22 @@ synthetic dataのみで最低限:
 - Firebase/Web削除
 - local API parity
 
-これらはC3または後続phaseへ残す。
+Cloud objective metricsはC3、snapshot/watcher hardeningはO-12dへ残す。
 
-## 8. 実装開始条件
+## 8. Exit check
 
-- `CX-O12C-001` C1 targeted/full test + build PASS
-- N100 worktree clean
+C2 COMPLETE条件:
 
-条件を満たすまではこのC2計画のみをPREPARATIONとして保持する。
+- [x] Processor canonical integration実装
+- [x] UI preferenceをProcessor APIから除外
+- [x] deterministic block/overlap IDs
+- [x] config-driven overlap thresholds
+- [x] sleep-day longest-main rule
+- [x] synthetic targeted tests追加
+- [ ] N100 `npm run test:processor` PASS
+- [ ] N100 `npm run build` PASS
+- [ ] N100 `npm test` PASS
+- [ ] Processor forbidden import scan PASS
+- [ ] final worktree CLEAN
+
+検証task: **`CX-O12C-008`**。
