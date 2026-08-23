@@ -1,12 +1,13 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c CODEX NEEDED（C1 full test最終確認待ち）**  
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c CODEX NEEDED（C1 COMPLETE / C2実装済み・N100検証待ち）**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
 Migration Source Map: [`o12-migration-source-map.md`](./o12-migration-source-map.md)  
 O-12c設計: [`o12c-processor-independence.md`](./o12c-processor-independence.md)  
-C1最終依存検証: [`o12c-c1-cloud-api-dependency-validation.md`](./o12c-c1-cloud-api-dependency-validation.md)  
+C2設計: [`o12c-c2-implementation-plan.md`](./o12c-c2-implementation-plan.md)  
+C2検証: [`o12c-c2-validation.md`](./o12c-c2-validation.md)  
 最終更新日: **2026-08-23**
 
 この文書はO-12の中心進捗台帳です。基準文書と矛盾する場合は基準文書を優先します。
@@ -28,7 +29,7 @@ C1最終依存検証: [`o12c-c1-cloud-api-dependency-validation.md`](./o12c-c1-c
 | --- | --- | --- |
 | O-12a | 現状監査 | **COMPLETE** |
 | O-12b | Processed Data Contract | **COMPLETE — v1.0.0** |
-| O-12c | Processor独立化 | **CODEX NEEDED — C1 targeted項目PASS、full test最終確認待ち** |
+| O-12c | Processor独立化 | **ACTIVE — C1 COMPLETE / C2 N100検証待ち** |
 | O-12d | Processor堅牢化 | **NOT STARTED** |
 | O-12e | 既存データ移行 | **NOT STARTED** |
 | O-12f | Sleep Compass独立化 | **NOT STARTED** |
@@ -66,99 +67,140 @@ C1最終依存検証: [`o12c-c1-cloud-api-dependency-validation.md`](./o12c-c1-c
 - overlap provenance
 - sleep block / sleep day objective data
 - daily + sleep-window health metric contract
-- immutable completed snapshot
-- manifest hash/count
-- `complete.json` publication marker
-- legacy reader policy
-- migration manifest / retention / contract tests
+- immutable completed snapshot / manifest / `complete.json`
+- legacy reader / migration manifest / retention / contract tests
 - Web/Cloud/local mapping
 
-snapshot writer/atomic publicationはO-12c/O-12dで実装する。
+snapshot writer / atomic publicationはO-12dで実装する。
 
 # O-12c — Processor独立化
 
 ## 5. 実装slice
 
-1. **C1 Import boundary + one-shot**
-2. **C2 Objective integration policy extraction**
-3. **C3 Cloud objective metrics回収**
+1. **C1 Import boundary + one-shot — COMPLETE**
+2. **C2 Objective integration policy extraction — 実装済み / N100検証待ち**
+3. **C3 Cloud objective metrics回収 — 未着手**
 
 O-12dのatomic write / corruption / portable path finalization / fingerprint / watcher hardeningは混ぜない。
 
-## 6. C1 — 実装済み / full test最終確認待ち
+## 6. C1 — COMPLETE
 
 remote `master`へ実装済み:
 
-- `processor/healthAutoExport.ts`: raw JSON parse/audit/normalize、`HealthStore` / HTTP / Firebase / Firestore依存なし
-- `processor/runOnce.ts`: serverなしdirect one-shot CLI、health valueをstdoutへ出さない
-- `tests/processor-health-auto-export.test.ts`: synthetic JSONのみ
-- `server/importHealthExports.ts`: parse/normalizeをProcessorへ委譲、legacy store保存はserver adapter側
-- `package.json`: `processor:once` / `test:processor`、full test chainへprocessor test追加
-- `tsconfig.node.json`: `processor`をtypecheck対象へ追加
+- `processor/healthAutoExport.ts`: raw JSON parse/audit/normalize
+- `processor/runOnce.ts`: serverなしdirect one-shot CLI
+- `server/importHealthExports.ts`: Processor adapter化、legacy store保存はserver側
+- synthetic processor test
+- root scripts / Node typecheck対象更新
 
-### C1 N100検証履歴
+### N100最終結果
 
-- `CX-O12C-001`: **BLOCKED** — dirty worktreeを検出し安全停止
-- `CX-O12C-002`: **PASS** — dirty docs read-only確認
-- `CX-O12C-003`: **BLOCKED** — stale `origin/master`
-- `CX-O12C-004`: **BLOCKED / SAFE_DISCARD CONFIRMED** — dirty docs 4件全て保存不要を確認
-- `CX-O12C-005`: **ENVIRONMENT BLOCKED** — docs cleanup / fast-forward / CLEAN PASS。root `node_modules`不在で`tsx` / `tsc`未解決
-- `CX-O12C-006`: **PARTIAL PASS / ENVIRONMENT FAIL**
-  - start/final git status: CLEAN
-  - root `node_modules` before: ABSENT
-  - `npm ci --include=dev`: PASS
-  - `tsx` / `tsc`: PASS
-  - `npm run test:processor`: **PASS**
-  - `npm run build`: **PASS**
-  - `npm run processor:once`: **PASS**、exit code `2`
-  - `npm test`: **FAIL** — `firebase-admin`が見つからない
-  - tracked変更なし、`node_modules`復旧のみ
+`CX-O12C-007`: **PASS**
 
-### `CX-O12C-006` review
+- branch `master`
+- start/final worktree `CLEAN`
+- root `node_modules`復旧済み
+- `cloud-api/node_modules` before: ABSENT
+- `npm ci --prefix cloud-api --include=dev`: PASS
+- `firebase-admin` after: PASS
+- `npm test`: **PASS**
+- tracked変更なし。`cloud-api/node_modules`復旧のみ
 
-C1 Processor実装FAILとは扱わない。
+C1通過根拠:
 
-理由:
+- processor targeted test: PASS (`CX-O12C-006`)
+- root build: PASS (`CX-O12C-006`)
+- one-shot CLI usage: PASS / exit code 2 (`CX-O12C-006`)
+- full test: PASS (`CX-O12C-007`)
+- final worktree CLEAN
 
-- `firebase-admin` はroot packageではなく `cloud-api/package.json` dependencyとして管理されている
-- `cloud-api/package-lock.json`にも固定済み
-- root full testの一部は `cloud-api/src/*` を直接importし、`cloud-api/src/lib/viewAuth.ts` は `firebase-admin/auth` をimportする
-- N100ではroot `node_modules`だけ復旧され、`cloud-api/node_modules`は未復旧だったと整合する
+**C1 Exit Check: COMPLETE**
 
-したがってpackage追加やコード変更は行わず、Cloud API専用lockfileから依存を復旧してfull testだけ最終確認する。
+## 7. C2 — 実装済み / N100検証待ち
 
-### 次の検証
+ChatGPTがremote `master`へ追加実装した。
 
-`CX-O12C-007`: [`o12c-c1-cloud-api-dependency-validation.md`](./o12c-c1-cloud-api-dependency-validation.md)
+### 新規Processor modules
 
-- clean `master`のみ
-- `cloud-api/node_modules/firebase-admin`存在確認
-- 欠けている場合だけ `npm ci --prefix cloud-api --include=dev`
-- package/lockfile/source/docs編集禁止
-- `npm test`を実行
-- full test PASS + worktree CLEANならC1 COMPLETE
+- `processor/types.ts`
+  - `ProcessorConfig`
+  - `SourceIntegrationPolicy`
+  - canonical block / overlap / integration / sleep-day型
+  - v1既定config: `Asia/Tokyo`, boundary `18`, merge `30`, nap `<90`, evening `16-22`, policy version `1`, overlap `0.8/0.3`
+- `processor/sleepBlocks.ts`
+  - input order非依存のdeterministic block構築
+  - array indexをblock IDに使用しない
+  - canonical source key生成でabsolute `sourceFile`をidentityへ混ぜない
+- `processor/overlaps.ts`
+  - full / partial overlap thresholdをProcessorConfigから取得
+  - deterministic overlap ID
+- `processor/integrateSleep.ts`
+  - `SleepSourcePreferenceMap` / UI preferenceを受け取らない
+  - deterministic source priority
+  - objective reason codeのみ。UI messageなし
+  - In Bedはactual sleep overlap時support、非overlap時fallback
+- `processor/sleepDays.ts`
+  - `sleepDayBoundaryHour`でsleep day割当
+  - main sleep = sleep dayごとのlongest block
+  - tie-break = duration desc → start asc → block ID lexical
+  - block type = main / evening / nap / supplemental / unknown
+- `processor/canonicalSleep.ts`
+  - blocks → overlaps → integration → sleep daysを1本のpure canonical入口へ統合
 
-## 7. C2 — 設計準備済み / コード未着手
+### Test
 
-C1 PASSまでコードを積まない。
+`tests/processor-canonical-integration.test.ts` を追加。
 
-- `SleepSourcePreferenceMap` 依存をcanonical integrationから除去
-- versioned Processor `SourceIntegrationPolicy`
-- objective reason codeとUI message分離
-- overlap thresholdをconfig/provenanceへ接続
-- deterministic canonical block ID
-- main sleep = longest block per sleep day
+synthetic dataのみで:
 
-設計: [`o12c-c2-implementation-plan.md`](./o12c-c2-implementation-plan.md)
+- input order変更でもcanonical block ID/result不変
+- absolute source path表現変更でもcanonical block identity不変
+- overlap 0.8 / 0.3 threshold
+- config変更によるoverlap判定変更
+- Processorに`SleepSourcePreferenceMap` / `sourcePreferences`なし
+- main sleep longest rule
+- deterministic tie-break
+- In Bed support/fallback objective reason code
+- decisionにUI `message`不要
+
+root `test:processor`へC2 testを追加済み。
+
+### Web compatibility
+
+C2では既存 `src/lib/analysis/buildUnifiedSleepTimeline.ts` を変更していない。
+
+既存Web挙動を維持したままProcessor canonical pathを別に確立し、O-12fでWeb consumerをProcessed Data側へ移す。
+
+### C2検証
+
+`CX-O12C-008`: [`o12c-c2-validation.md`](./o12c-c2-validation.md)
+
+- latest `master`へff-only
+- 既存root/cloud-api dependenciesを再利用
+- `npm run test:processor`
+- `npm run build`
+- `npm test`
+- Processor forbidden import scan
+- final worktree CLEAN
+- code/docs編集・package install禁止
+
+C2 PASSまではC3コードを重ねない。
 
 ## 8. C3 — 未着手
 
-Cloud側pure logicをProcessorへ回収する。
+C2 PASS後にCloud側pure logicをProcessorへ回収する。
+
+対象:
 
 - `cloud-api/src/lib/healthMetricAggregator.ts`
 - `cloud-api/src/lib/sleepWindowMetricAggregator.ts`
 
-Firestore `userId` / `runId` / document型をProcessor canonical modelから除去し、Cloud側はadapter化する。
+方針:
+
+- Firestore型をProcessor canonical型へ置換
+- Processorから`userId` / `runId`を除去
+- Cloud側は必要ならadapterで既存document shapeへ戻す
+- daily health metrics / sleep-window metricsをC2 canonical block/configと共有
 
 ## 9. O-12c Exit Gate
 
@@ -167,9 +209,9 @@ Firestore `userId` / `runId` / document型をProcessor canonical modelから除�
 - [x] C1 targeted processor test PASS
 - [x] C1 root build PASS
 - [x] C1 one-shot CLI usage PASS / exit 2
-- [ ] C1 full test PASS
-- [ ] canonical source integrationがUI preferenceから独立
-- [ ] canonical block/sleep-day ruleがv1.0.0と一致
+- [x] C1 full test PASS
+- [ ] C2 canonical source integrationがUI preferenceから独立 — **実装済み、検証待ち**
+- [ ] C2 canonical block/sleep-day ruleがv1.0.0と一致 — **実装済み、検証待ち**
 - [ ] daily health metricsがProcessor側で生成可能
 - [ ] sleep-window health metricsがProcessor側で生成可能
 - [ ] watcher/serverがProcessor Core adapterとして動作確認
@@ -199,15 +241,17 @@ Firestore `userId` / `runId` / document型をProcessor canonical modelから除�
 | `GPT-O12C-001` | O-12c | COMPLETE | coupling map / C1-C3設計 |
 | `GPT-O12C-002` | O-12c | COMPLETE | C1 remote implementation |
 | `CX-O12C-001..005` | O-12c | CLOSED | worktree hygiene / environment前処理 |
-| `CX-O12C-006` | O-12c | PARTIAL PASS | processor test/build/CLI PASS、Cloud API依存不足でfull testのみFAIL |
-| `CX-O12C-007` | O-12c | READY | Cloud API lockfile依存復旧 + full test最終確認 |
+| `CX-O12C-006` | O-12c | PARTIAL PASS | processor test/build/CLI PASS |
+| `CX-O12C-007` | O-12c | PASS | Cloud API依存復旧 + full test PASS、C1 COMPLETE |
+| `GPT-O12C-003` | O-12c | COMPLETE | C2 canonical objective integration remote implementation |
+| `CX-O12C-008` | O-12c | READY | C2 N100 targeted/build/full/依存境界検証 |
 
 ## 11. 現在の次作業
 
 ### Codex
 
-`CX-O12C-007`のみ。Cloud API既存lockfile依存の復旧と`npm test`。コード編集禁止。
+`CX-O12C-008`のみ。C2のtest/build/full test + forbidden import scan。編集禁止。
 
 ### ChatGPT
 
-`CX-O12C-007`がPASSならC1を正式に閉じ、準備済みC2実装へ進む。依存復旧後もfull testがFAILする場合のみ、最初のfailureをコード側で調査する。
+`CX-O12C-008`をreviewする。PASSならC2を閉じてC3実装へ進む。FAILなら最初のfailureだけを根拠にremote側を修正する。
