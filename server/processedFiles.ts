@@ -182,7 +182,8 @@ function validateProcessedFilesState(
 
   for (const valueEntry of files) {
     const entry = normalizeProcessedFileEntry(valueEntry, rawRoot)
-    if (entry) normalized.push(entry)
+    if (!entry) return null
+    normalized.push(entry)
   }
 
   return { files: normalized }
