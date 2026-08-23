@@ -9,6 +9,7 @@
     "import-server": "tsx server/server.ts",
     "processor:once": "tsx processor/runOnce.ts",
     "processor:snapshot": "tsx processor/runDirectory.ts",
+    "migration:local-evidence": "tsx processor/runLocalMigrationEvidence.ts",
     "migration:finalize": "tsx processor/runMigration.ts",
     "dev:all": "concurrently \"npm run server\" \"npm run dev -- --host 0.0.0.0\"",
     "rescan": "tsx server/rescan.ts",
