@@ -13,7 +13,8 @@ dist-ssr
 *.local
 server-data
 processed-data
-health-auto-export
+migration-input
+migration-output
 
 # Editor directories and files
 .vscode/*
