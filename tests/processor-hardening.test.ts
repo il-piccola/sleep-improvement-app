@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadHealthImportConfig } from '../server/config.ts'
+import { createHealthExportWatcher } from '../server/watchHealthExports.ts'
 import {
   JsonStateCorruptionError,
   getBackupPath,
@@ -34,6 +35,7 @@ try {
   await testRecoverableJsonState()
   await testPortableMetadataFirstLedger()
   testPortableConfig()
+  await testStandaloneWatcherRescan()
   await testImmutableSnapshotPublication()
   await testDirectoryProcessorEndToEnd()
   console.log('processor hardening tests passed')
@@ -56,7 +58,9 @@ async function testRecoverableJsonState(): Promise<void> {
   const recovered = await loadJsonState({ path, defaultValue: { version: 0 }, validate })
   assert.equal(recovered.status, 'recovered_from_backup')
   assert.equal(recovered.value.version, 1)
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).version, 1)
 
+  await writeFile(path, '{broken-again', 'utf8')
   await writeFile(getBackupPath(path), '{also-broken', 'utf8')
   await assert.rejects(
     () => loadJsonState({ path, defaultValue: { version: 0 }, validate }),
@@ -127,6 +131,34 @@ function testPortableConfig(): void {
   )
 }
 
+async function testStandaloneWatcherRescan(): Promise<void> {
+  const rawRoot = join(root, 'watcher-raw')
+  const dataDir = join(root, 'watcher-state')
+  await mkdir(rawRoot, { recursive: true })
+  await writeFile(join(rawRoot, 'sleep.json'), JSON.stringify(createSyntheticInput()), 'utf8')
+
+  const config = loadHealthImportConfig(join(root, 'watcher-cwd'), {
+    HEALTH_EXPORT_WATCH_DIR: rawRoot,
+    HEALTH_IMPORT_WATCH_ENABLED: 'false',
+    HEALTH_IMPORT_DATA_DIR: dataDir,
+    PROCESSED_DATA_DIR: join(root, 'watcher-processed'),
+  })
+  const watcher = createHealthExportWatcher(config)
+  const first = await watcher.rescan()
+  assert.equal(first.isWatching, false)
+  assert.equal(first.importedCount, 1)
+  assert.equal(first.failedCount, 0)
+  assert.equal(first.latestStats?.readFileCount, 1)
+
+  const second = await watcher.rescan()
+  assert.equal(second.skippedCount, 1)
+  assert.equal(second.latestStats?.readFileCount, 0)
+
+  const ledger = await loadProcessedFiles(dataDir, rawRoot)
+  assert.equal(ledger.files[0]?.relativePath, 'sleep.json')
+  assert.equal(JSON.stringify(ledger).includes(rawRoot), false)
+}
+
 async function testImmutableSnapshotPublication(): Promise<void> {
   const processedDataRoot = join(root, 'snapshot-local')
   const backupRoot = join(root, 'snapshot-backup')
@@ -185,8 +217,33 @@ async function testDirectoryProcessorEndToEnd(): Promise<void> {
   const processedDataRoot = join(root, 'processed-e2e')
   const backupRoot = join(root, 'backup-e2e')
   await mkdir(rawRoot, { recursive: true })
+  await writeFile(join(rawRoot, 'sleep.json'), JSON.stringify(createSyntheticInput()), 'utf8')
 
-  const input = {
+  const result = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    backupRoot,
+    snapshotId: '20260824T000000Z-e2etest1',
+    processorRevision: 'synthetic',
+  })
+
+  assert.equal(result.inputFileCount, 1)
+  assert.equal(result.processedFileCount, 1)
+  assert.equal(result.failedFileCount, 0)
+  assert.equal(result.sleepRecordCount, 2)
+  assert.ok(result.healthMetricCount >= 2)
+  await validateCompletedSnapshot(result.published.snapshotDir)
+  assert.ok(result.published.backupDir)
+  await validateCompletedSnapshot(result.published.backupDir!)
+
+  const snapshotText = await readSnapshotText(result.published.snapshotDir)
+  assert.equal(snapshotText.includes(rawRoot), false)
+  assert.equal(snapshotText.includes('Health Auto Export\\'), false)
+  assert.equal(snapshotText.includes('Health Auto Export/'), false)
+}
+
+function createSyntheticInput(): unknown {
+  return {
     metrics: [
       {
         name: 'sleep_analysis',
@@ -224,29 +281,6 @@ async function testDirectoryProcessorEndToEnd(): Promise<void> {
       },
     ],
   }
-  await writeFile(join(rawRoot, 'sleep.json'), JSON.stringify(input), 'utf8')
-
-  const result = await processHealthExportDirectory({
-    rawRoot,
-    processedDataRoot,
-    backupRoot,
-    snapshotId: '20260824T000000Z-e2etest1',
-    processorRevision: 'synthetic',
-  })
-
-  assert.equal(result.inputFileCount, 1)
-  assert.equal(result.processedFileCount, 1)
-  assert.equal(result.failedFileCount, 0)
-  assert.equal(result.sleepRecordCount, 2)
-  assert.ok(result.healthMetricCount >= 2)
-  await validateCompletedSnapshot(result.published.snapshotDir)
-  assert.ok(result.published.backupDir)
-  await validateCompletedSnapshot(result.published.backupDir!)
-
-  const snapshotText = await readSnapshotText(result.published.snapshotDir)
-  assert.equal(snapshotText.includes(rawRoot), false)
-  assert.equal(snapshotText.includes('Health Auto Export\\'), false)
-  assert.equal(snapshotText.includes('Health Auto Export/'), false)
 }
 
 async function readSnapshotText(snapshotDir: string): Promise<string> {
