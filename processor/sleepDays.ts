@@ -33,22 +33,32 @@ export function buildProcessorSleepDays({
 
   for (const [sleepDay, group] of Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right))) {
     const sorted = [...group].sort(compareBlocksForMainSleep)
-    const mainBlockId = sorted[0]?.blockId ?? null
+    const mainSleepBlockId = sorted[0]?.blockId ?? null
     const classified = group
       .map((block) => ({
         ...block,
         sleepDay,
-        isMainSleep: block.blockId === mainBlockId,
-        blockType: classifyBlock(block, block.blockId === mainBlockId, config),
+        isMainSleep: block.blockId === mainSleepBlockId,
+        blockType: classifyBlock(block, block.blockId === mainSleepBlockId, config),
       }))
       .sort(compareClassifiedBlocks)
+    const totalSleepMinutes = classified.reduce((sum, block) => sum + block.durationMinutes, 0)
 
     classifiedBlocks.push(...classified)
     sleepDays.push({
       sleepDay,
+      boundaryStart: null,
+      boundaryEnd: null,
       blockIds: classified.map((block) => block.blockId),
-      mainBlockId,
-      totalSleepMinutes: classified.reduce((sum, block) => sum + block.durationMinutes, 0),
+      mainSleepBlockId,
+      blockCount: classified.length,
+      totalSleepMinutes,
+      longestBlockMinutes: classified.reduce(
+        (longest, block) => Math.max(longest, block.durationMinutes),
+        0,
+      ),
+      napBlockCount: classified.filter((block) => block.blockType === 'nap').length,
+      eveningBlockCount: classified.filter((block) => block.blockType === 'evening').length,
     })
   }
 
