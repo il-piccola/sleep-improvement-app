@@ -28,13 +28,12 @@ gcloud projects describe "$PROJECT" \
   --format='yaml(projectId,lifecycleState)'
 
 echo '=== BILLING ==='
-gcloud beta billing projects describe "$PROJECT" \
+gcloud billing projects describe "$PROJECT" \
   --format='yaml(projectId,billingEnabled)'
 
 echo '=== CLOUD RUN ==='
 gcloud run services list \
   --project="$PROJECT" \
-  --platform=managed \
   --format='table(name,region)'
 
 echo '=== CLOUD SCHEDULER ==='
@@ -156,3 +155,18 @@ Firebase Hosting: site ID一覧、または未実行理由
 この監査はGCPの「現在実在するcontrol-plane resource」を確認するための証拠であり、Firestore document内容やhistorical data分類そのものはO-12eで扱う。
 
 O-12aでは、repository上の既知resourceとこのcontrol-plane結果を突き合わせ、未説明resource categoryがないかをChatGPTが判定する。
+
+## 6. CLI確認メモ
+
+2026-08-23時点のGoogle Cloud公式CLI referenceで、以下をstable commandとして再確認済み。
+
+- `gcloud projects describe`
+- `gcloud billing projects describe`
+- `gcloud run services list`
+- `gcloud scheduler locations list`
+- `gcloud scheduler jobs list`
+- `gcloud artifacts repositories list`
+- `gcloud firestore databases list`
+- `gcloud services list`
+
+旧 `gcloud beta billing projects describe` は使用せずstable commandを使う。Cloud Runの旧 `--platform=managed` 指定も不要なため外す。
