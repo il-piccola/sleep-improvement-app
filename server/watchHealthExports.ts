@@ -3,7 +3,6 @@ import { join, resolve } from 'node:path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type { HealthImportConfig } from './config.ts'
 import { toChokidarOptions } from './config.ts'
-import { importHealthExportFile } from './importHealthExports.ts'
 import {
   addContentHash,
   currentImporterVersion,
@@ -38,6 +37,18 @@ export type ImportStatus = {
 
 type ImportRunStats = NonNullable<ImportStatus['latestStats']>
 
+type HealthExportImportResult = {
+  importedAt: string
+  state: {
+    latestImport: ImportRunStats | null
+  }
+}
+
+export type HealthExportImporter = (input: {
+  dataDir: string
+  filePath: string
+}) => Promise<HealthExportImportResult>
+
 export type HealthExportWatcher = {
   status: ImportStatus
   start: () => Promise<void>
@@ -45,7 +56,10 @@ export type HealthExportWatcher = {
   rescan: () => Promise<ImportStatus>
 }
 
-export function createHealthExportWatcher(config: HealthImportConfig): HealthExportWatcher {
+export function createHealthExportWatcher(
+  config: HealthImportConfig,
+  importFile: HealthExportImporter = defaultImportHealthExportFile,
+): HealthExportWatcher {
   const queue = new Set<string>()
   let watcher: FSWatcher | null = null
   let scanTimer: NodeJS.Timeout | null = null
@@ -185,7 +199,7 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
       }
 
       try {
-        const result = await importHealthExportFile({
+        const result = await importFile({
           dataDir: config.dataDir,
           filePath: path,
         })
@@ -202,9 +216,7 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
         status.lastImportedAt = result.importedAt
         status.lastProcessedFileName = fingerprint.fileName
         status.lastError = null
-        return result.state.latestImport
-          ? toRunStats(result.state.latestImport)
-          : createEmptyRunStats()
+        return result.state.latestImport ?? createEmptyRunStats()
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         await saveProcessedFile(
@@ -268,6 +280,28 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
   }
 }
 
+async function defaultImportHealthExportFile(input: {
+  dataDir: string
+  filePath: string
+}): Promise<HealthExportImportResult> {
+  const { importHealthExportFile } = await import('./importHealthExports.ts')
+  const result = await importHealthExportFile(input)
+  return {
+    importedAt: result.importedAt,
+    state: {
+      latestImport: result.state.latestImport
+        ? {
+            readFileCount: result.state.latestImport.readFileCount,
+            newRecordCount: result.state.latestImport.newRecordCount,
+            duplicateSkippedCount: result.state.latestImport.duplicateSkippedCount,
+            rejectedRows: result.state.latestImport.rejectedRows,
+            warningCount: result.state.latestImport.warningCount,
+          }
+        : null,
+    },
+  }
+}
+
 function createEmptyRunStats(): ImportRunStats {
   return {
     readFileCount: 0,
@@ -284,22 +318,6 @@ function mergeRunStats(target: ImportRunStats, source: ImportRunStats): void {
   target.duplicateSkippedCount += source.duplicateSkippedCount
   target.rejectedRows += source.rejectedRows
   target.warningCount += source.warningCount
-}
-
-function toRunStats(stats: {
-  readFileCount: number
-  newRecordCount: number
-  duplicateSkippedCount: number
-  rejectedRows: number
-  warningCount: number
-}): ImportRunStats {
-  return {
-    readFileCount: stats.readFileCount,
-    newRecordCount: stats.newRecordCount,
-    duplicateSkippedCount: stats.duplicateSkippedCount,
-    rejectedRows: stats.rejectedRows,
-    warningCount: stats.warningCount,
-  }
 }
 
 async function findJsonFiles(dir: string): Promise<string[]> {
