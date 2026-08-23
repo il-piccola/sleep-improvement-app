@@ -7,6 +7,8 @@ export type ProcessorSleepStage =
   | 'asleep_deep'
   | 'asleep_unspecified'
 
+export const PROCESSOR_IDENTITY_POLICY_VERSION = '1'
+
 export type ProcessorConfig = {
   timeZone: string
   sleepDayBoundaryHour: number
@@ -128,7 +130,13 @@ export type ClassifiedProcessorSleepBlock = ProcessorSleepBlock & {
 
 export type ProcessedSleepDay = {
   sleepDay: string
+  boundaryStart: string | null
+  boundaryEnd: string | null
   blockIds: string[]
-  mainBlockId: string | null
+  mainSleepBlockId: string | null
+  blockCount: number
   totalSleepMinutes: number
+  longestBlockMinutes: number
+  napBlockCount: number
+  eveningBlockCount: number
 }
