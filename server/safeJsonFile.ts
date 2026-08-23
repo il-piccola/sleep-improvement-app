@@ -37,6 +37,13 @@ export async function loadJsonState<T>({
   const backup = await readValidated(backupPath, validate)
 
   if (backup.kind === 'ok') {
+    try {
+      await mkdir(dirname(path), { recursive: true })
+      await copyFile(backupPath, path)
+    } catch {
+      // Reading can still continue from the valid backup. A later write may repair the primary.
+    }
+
     return { value: backup.value, status: 'recovered_from_backup' }
   }
 
