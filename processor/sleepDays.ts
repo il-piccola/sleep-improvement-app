@@ -133,7 +133,7 @@ function getLocalParts(date: Date, timeZone: string): {
     hour: '2-digit',
     hour12: false,
   }).formatToParts(date)
-  const value = (type: Intl.DateTimeFormatPartTypes): number =>
+  const value = (type: 'year' | 'month' | 'day' | 'hour'): number =>
     Number(parts.find((part) => part.type === type)?.value)
 
   return {
