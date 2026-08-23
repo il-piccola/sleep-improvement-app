@@ -6,6 +6,7 @@ import { toChokidarOptions } from './config.ts'
 import { importHealthExportFile } from './importHealthExports.ts'
 import {
   addContentHash,
+  currentImporterVersion,
   getFileMetadata,
   hasProcessedFile,
   hasProcessedFileMetadata,
@@ -170,7 +171,7 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
           config.dataDir,
           {
             ...fingerprint,
-            importerVersion: 3,
+            importerVersion: currentImporterVersion,
             processedAt: new Date().toISOString(),
             status: 'imported',
             message: 'metadata_changed_content_unchanged',
@@ -190,7 +191,7 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
         })
         const entry: ProcessedFileEntry = {
           ...fingerprint,
-          importerVersion: 3,
+          importerVersion: currentImporterVersion,
           processedAt: result.importedAt,
           status: 'imported',
         }
@@ -210,7 +211,7 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
           config.dataDir,
           {
             ...fingerprint,
-            importerVersion: 3,
+            importerVersion: currentImporterVersion,
             processedAt: new Date().toISOString(),
             status: 'failed',
             message,
