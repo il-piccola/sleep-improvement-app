@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
 import type { SleepRecord } from '../src/types/sleep.ts'
-import type {
-  ProcessorConfig,
-  ProcessorSleepBlock,
-  ProcessorSleepStage,
-  ProcessorStageSegment,
+import {
+  PROCESSOR_IDENTITY_POLICY_VERSION,
+  type ProcessorConfig,
+  type ProcessorSleepBlock,
+  type ProcessorSleepStage,
+  type ProcessorStageSegment,
 } from './types.ts'
 
 type Candidate = {
@@ -89,6 +90,28 @@ export function getCanonicalSourceKey(record: SleepRecord): string {
   return toSourceKey(values[0])
 }
 
+export function getCanonicalRecordId(record: SleepRecord): string {
+  const stage = normalizeStage(record.stage ?? record.value)
+  const sourceKey = getCanonicalSourceKey(record)
+  const start = parseDate(record.startDate ?? record.start)
+  const end = parseDate(record.endDate ?? record.end)
+  const actualDuration = start && end ? Math.max(0, (end.getTime() - start.getTime()) / 60_000) : null
+  const durationMinutes = Math.round(actualDuration ?? Math.max(0, record.durationMinutes ?? 0))
+  const identity = JSON.stringify({
+    identityPolicyVersion: PROCESSOR_IDENTITY_POLICY_VERSION,
+    sourceFormat: record.sourceFormat ?? 'unknown',
+    sourceKey,
+    stage,
+    originalValue: record.originalValue ?? record.value,
+    start: start?.toISOString() ?? null,
+    end: end?.toISOString() ?? null,
+    durationMinutes,
+    dayIndex: record.dayIndex ?? null,
+  })
+
+  return `rec-${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
+}
+
 function toCandidate(record: SleepRecord): Candidate | null {
   const stage = normalizeStage(record.stage ?? record.value)
   const kind = getKind(stage)
@@ -107,7 +130,7 @@ function toCandidate(record: SleepRecord): Candidate | null {
   }
 
   return {
-    recordId: record.id,
+    recordId: getCanonicalRecordId(record),
     sourceKey: getCanonicalSourceKey(record),
     kind,
     stage,
@@ -181,9 +204,12 @@ function mergeIntoBlock(block: MutableBlock, candidate: Candidate): void {
 }
 
 function finalizeBlock(block: MutableBlock): ProcessorSleepBlock {
+  const sourceRecordIds = uniqueSorted(block.sourceRecordIds)
   const sourceKeys = uniqueSorted(block.sourceKeys)
   const stageSegments = [...block.stageSegments].sort(compareSegments)
   const identity = JSON.stringify({
+    identityPolicyVersion: PROCESSOR_IDENTITY_POLICY_VERSION,
+    sourceRecordIds,
     sourceKeys,
     kind: block.kind,
     start: block.start,
@@ -196,7 +222,7 @@ function finalizeBlock(block: MutableBlock): ProcessorSleepBlock {
   return {
     ...block,
     blockId: `blk-${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`,
-    sourceRecordIds: uniqueSorted(block.sourceRecordIds),
+    sourceRecordIds,
     sourceKeys,
     stageSegments,
   }
