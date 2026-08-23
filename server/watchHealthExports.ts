@@ -5,10 +5,13 @@ import type { HealthImportConfig } from './config.ts'
 import { toChokidarOptions } from './config.ts'
 import { importHealthExportFile } from './importHealthExports.ts'
 import {
-  getFileFingerprint,
+  addContentHash,
+  getFileMetadata,
   hasProcessedFile,
+  hasProcessedFileMetadata,
   saveProcessedFile,
   type ProcessedFileEntry,
+  type ProcessedFileMetadata,
 } from './processedFiles.ts'
 
 export type ImportStatus = {
@@ -62,7 +65,7 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
   }
 
   async function start() {
-    if (watcher) {
+    if (watcher || !config.watchEnabled) {
       return
     }
 
@@ -144,53 +147,115 @@ export function createHealthExportWatcher(config: HealthImportConfig): HealthExp
   }
 
   async function processFile(path: string): Promise<ImportRunStats> {
-    const fingerprint = await getFileFingerprint(path)
+    let metadata: ProcessedFileMetadata
 
-    if (await hasProcessedFile(config.dataDir, fingerprint)) {
-      status.skippedCount += 1
-      return {
-        ...createEmptyRunStats(),
-        readFileCount: 1,
-      }
+    try {
+      metadata = await getFileMetadata(path, config.watchDir)
+    } catch (error) {
+      return recordUntrackedFailure(path, error)
     }
 
     try {
-      const result = await importHealthExportFile({
-        dataDir: config.dataDir,
-        filePath: path,
-      })
-      const entry: ProcessedFileEntry = {
-        ...fingerprint,
-        processedAt: result.importedAt,
-        status: 'imported',
+      if (await hasProcessedFileMetadata(config.dataDir, metadata, config.watchDir)) {
+        status.skippedCount += 1
+        status.lastProcessedFileName = metadata.fileName
+        status.lastError = null
+        return createEmptyRunStats()
       }
 
-      await saveProcessedFile(config.dataDir, entry)
-      status.processedCount += 1
-      status.importedCount += 1
-      status.lastImportedAt = result.importedAt
-      status.lastProcessedFileName = fingerprint.fileName
-      status.lastError = null
-      return result.state.latestImport
-        ? toRunStats(result.state.latestImport)
-        : createEmptyRunStats()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      await saveProcessedFile(config.dataDir, {
-        ...fingerprint,
-        processedAt: new Date().toISOString(),
-        status: 'failed',
-        message,
-      })
-      status.processedCount += 1
-      status.failedCount += 1
-      status.lastProcessedFileName = fingerprint.fileName
-      status.lastError = message
-      return {
-        ...createEmptyRunStats(),
-        readFileCount: 1,
-        warningCount: 1,
+      const fingerprint = await addContentHash(path, metadata)
+
+      if (await hasProcessedFile(config.dataDir, fingerprint, config.watchDir)) {
+        await saveProcessedFile(
+          config.dataDir,
+          {
+            ...fingerprint,
+            importerVersion: 3,
+            processedAt: new Date().toISOString(),
+            status: 'imported',
+            message: 'metadata_changed_content_unchanged',
+          },
+          config.watchDir,
+        )
+        status.skippedCount += 1
+        status.lastProcessedFileName = fingerprint.fileName
+        status.lastError = null
+        return createEmptyRunStats()
       }
+
+      try {
+        const result = await importHealthExportFile({
+          dataDir: config.dataDir,
+          filePath: path,
+        })
+        const entry: ProcessedFileEntry = {
+          ...fingerprint,
+          importerVersion: 3,
+          processedAt: result.importedAt,
+          status: 'imported',
+        }
+
+        await saveProcessedFile(config.dataDir, entry, config.watchDir)
+        status.processedCount += 1
+        status.importedCount += 1
+        status.lastImportedAt = result.importedAt
+        status.lastProcessedFileName = fingerprint.fileName
+        status.lastError = null
+        return result.state.latestImport
+          ? toRunStats(result.state.latestImport)
+          : createEmptyRunStats()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        await saveProcessedFile(
+          config.dataDir,
+          {
+            ...fingerprint,
+            importerVersion: 3,
+            processedAt: new Date().toISOString(),
+            status: 'failed',
+            message,
+          },
+          config.watchDir,
+        )
+        status.processedCount += 1
+        status.failedCount += 1
+        status.lastProcessedFileName = fingerprint.fileName
+        status.lastError = message
+        return {
+          ...createEmptyRunStats(),
+          readFileCount: 1,
+          warningCount: 1,
+        }
+      }
+    } catch (error) {
+      return recordTrackedFailure(metadata, error)
+    }
+  }
+
+  function recordTrackedFailure(
+    metadata: ProcessedFileMetadata,
+    error: unknown,
+  ): ImportRunStats {
+    const message = error instanceof Error ? error.message : String(error)
+    status.processedCount += 1
+    status.failedCount += 1
+    status.lastProcessedFileName = metadata.fileName
+    status.lastError = message
+    return {
+      ...createEmptyRunStats(),
+      warningCount: 1,
+    }
+  }
+
+  function recordUntrackedFailure(path: string, error: unknown): ImportRunStats {
+    const message = error instanceof Error ? error.message : String(error)
+    status.processedCount += 1
+    status.failedCount += 1
+    status.lastProcessedFileName = path.split(/[\\/]/).at(-1) ?? null
+    status.lastError = message
+    return {
+      ...createEmptyRunStats(),
+      warningCount: 1,
     }
   }
 
@@ -258,7 +323,7 @@ async function findJsonFiles(dir: string): Promise<string[]> {
     }
   }
 
-  return files
+  return files.sort((left, right) => left.localeCompare(right))
 }
 
 function toGlob(dir: string): string {
