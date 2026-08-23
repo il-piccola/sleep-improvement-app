@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import type {
   DataQualityReport,
   ImprovementAction,
@@ -15,6 +14,11 @@ import { generateImprovementActions } from '../src/lib/analysis/generateImprovem
 import { groupBySleepDay } from '../src/lib/analysis/groupBySleepDay.ts'
 import { summarizeSleepDay } from '../src/lib/analysis/summarizeSleepDay.ts'
 import { resolveSleepSource } from '../src/lib/source/resolveSleepSource.ts'
+import {
+  loadJsonState,
+  writeJsonStateAtomic,
+  type JsonStateLoadStatus,
+} from './safeJsonFile.ts'
 
 export type HealthStoreImportStats = {
   importedFileName: string
@@ -48,6 +52,11 @@ export type HealthStoreState = {
   warnings: string[]
 }
 
+export type HealthStoreLoadResult = {
+  state: HealthStoreState
+  status: JsonStateLoadStatus
+}
+
 const emptyState: HealthStoreState = {
   generatedAt: null,
   records: [],
@@ -58,19 +67,19 @@ const emptyState: HealthStoreState = {
 }
 
 export async function loadHealthStore(dataDir: string): Promise<HealthStoreState> {
-  const path = getStorePath(dataDir)
+  return (await loadHealthStoreWithStatus(dataDir)).state
+}
 
-  try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as Partial<HealthStoreState>
-    return {
-      ...emptyState,
-      ...parsed,
-      records: Array.isArray(parsed.records) ? parsed.records : [],
-      importHistory: Array.isArray(parsed.importHistory) ? parsed.importHistory : [],
-      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
-    }
-  } catch {
-    return emptyState
+export async function loadHealthStoreWithStatus(dataDir: string): Promise<HealthStoreLoadResult> {
+  const result = await loadJsonState({
+    path: getStorePath(dataDir),
+    defaultValue: emptyState,
+    validate: validateHealthStore,
+  })
+
+  return {
+    state: result.value,
+    status: result.status,
   }
 }
 
@@ -125,7 +134,7 @@ export async function mergeAndAnalyzeSleepRecords({
       sourceFile,
     },
     ...current.importHistory,
-  ].slice(0, 50)
+  ]
   const nextState: HealthStoreState = {
     generatedAt: importedAt,
     records: allRecords,
@@ -161,10 +170,7 @@ export async function saveHealthStore(
   dataDir: string,
   state: HealthStoreState,
 ): Promise<void> {
-  const path = getStorePath(dataDir)
-
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify(state, null, 2), 'utf8')
+  await writeJsonStateAtomic(getStorePath(dataDir), state)
 }
 
 export function getRecordDuplicateKey(record: SleepRecord): string {
@@ -221,4 +227,24 @@ function compareRecordsByStart(left: SleepRecord, right: SleepRecord): number {
 
 function getStorePath(dataDir: string): string {
   return resolve(dataDir, 'health-store.json')
+}
+
+function validateHealthStore(value: unknown): HealthStoreState | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  const parsed = value as Partial<HealthStoreState>
+
+  if (parsed.records !== undefined && !Array.isArray(parsed.records)) return null
+  if (parsed.importHistory !== undefined && !Array.isArray(parsed.importHistory)) return null
+  if (parsed.warnings !== undefined && !Array.isArray(parsed.warnings)) return null
+
+  return {
+    ...emptyState,
+    ...parsed,
+    records: Array.isArray(parsed.records) ? parsed.records : [],
+    importHistory: Array.isArray(parsed.importHistory) ? parsed.importHistory : [],
+    warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+  }
 }
