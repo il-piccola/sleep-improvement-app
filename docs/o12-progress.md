@@ -1,19 +1,21 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d ACTIVE（実装済み・最終統合検証待ち）**  
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e ACTIVE（E1 tooling実装済み・Cloud evidence取得待ち）**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
 Migration Source Map: [`o12-migration-source-map.md`](./o12-migration-source-map.md)  
 O-12c最終結果: [`o12c-final-validation-result-cx-o12c-012.md`](./o12c-final-validation-result-cx-o12c-012.md)  
-O-12d実装: [`o12d-processor-hardening.md`](./o12d-processor-hardening.md)  
-O-12d最終検証: [`o12d-final-validation.md`](./o12d-final-validation.md)  
+O-12d最終結果: [`o12d-final-validation-result-cx-o12d-001.md`](./o12d-final-validation-result-cx-o12d-001.md)  
+O-12e計画: [`o12e-existing-data-migration.md`](./o12e-existing-data-migration.md)  
+O-12e Cloud evidence: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
+O-12e N100 final: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
 最終更新日: **2026-08-24**
 
 ## 1. 運用原則
 
 - O-12は **ChatGPT優先・Codex最小化** で進める。
-- Codex確認は実装sliceごとにまとめ、safeなtest/build/static checkを1回へ統合する。
+- Codex確認は安全にまとめられるtest/build/runtime checkを1回へ統合する。
 - 既知environment issueだけを理由に安全な後続確認を小分けにしない。
 - 一度PASSした項目を理由なく再確認しない。
 - Exit Gateは `O-12a → b → c → d → e → f → g → h → i → j` の順序を守る。
@@ -30,8 +32,8 @@ O-12d最終検証: [`o12d-final-validation.md`](./o12d-final-validation.md)
 | O-12a | 現状監査 | **COMPLETE** |
 | O-12b | Processed Data Contract | **COMPLETE — v1.0.0** |
 | O-12c | Processor独立化 | **COMPLETE** |
-| O-12d | Processor堅牢化 | **ACTIVE — implementation complete / validation pending** |
-| O-12e | 既存データ移行 | **NOT STARTED** |
+| O-12d | Processor堅牢化 | **COMPLETE** |
+| O-12e | 既存データ移行 | **ACTIVE — E1 tooling実装済み / Cloud evidence待ち** |
 | O-12f | Sleep Compass独立化 | **NOT STARTED** |
 | O-12g | Local Web + Tailscale | **NOT STARTED** |
 | O-12h | 並行検証・復旧試験 | **NOT STARTED** |
@@ -66,160 +68,151 @@ O-12d最終検証: [`o12d-final-validation.md`](./o12d-final-validation.md)
 
 # O-12c — COMPLETE
 
-## C1
+実装済み:
 
-- standalone Health Auto Export Processor
-- direct one-shot CLI
-- server importerはProcessor adapter
-
-## C2
-
-- UI `SleepSourcePreferenceMap`からcanonical integrationを分離
-- deterministic source integration
-- canonical block / overlap / sleep-day
-- main sleep = sleep dayごとのlongest block
-- absolute host pathをcanonical block identityへ混ぜない
-
-## C3
-
-- Processor-owned daily health metrics
-- Processor-owned sleep-window health metrics
-- Processor canonical metric型に`userId` / `runId` / Firestore依存なし
+- C1 standalone Health Auto Export Processor + direct one-shot
+- C2 UI source preferenceから独立したcanonical integration
+- C2 deterministic block / overlap / sleep-day / main sleep
+- C3 Processor-owned daily + sleep-window health metrics
+- Processor canonical metric型からCloud/Firestore identityを分離
 - existing Cloud metric runtimeは変更せず保護
 
-## 最終根拠
+最終根拠 `CX-O12C-012`: **PASS_WITH_ENVIRONMENT_EXCEPTION**
 
-`CX-O12C-012`: **PASS_WITH_ENVIRONMENT_EXCEPTION**
-
-- C1 native: PASS
-- C2 native: PASS
-- C3 native: PASS
-- build: PASS
-- Processor forbidden scan: PASS
-- Cloud metric runtime unchanged: PASS
-- watcher Processor adapter scan: PASS
-- application error: なし
-- final git status: CLEAN
+- C1/C2/C3 native PASS
+- build PASS
+- Processor forbidden scan PASS
+- Cloud metric runtime unchanged PASS
+- watcher Processor adapter PASS
+- application errorなし
+- final worktree CLEAN
 - full regressionのみ既知`uv_os_get_passwd ENOMEM`
-
-`CX-O12C-009`でNode `os.userInfo()`単独でも同じENOMEMを再現しているため、N100 environment exceptionとして分離した。
 
 **O-12c Exit Gate: COMPLETE**
 
-# O-12d — ACTIVE
+# O-12d — COMPLETE
 
-## 3. 実装済み
+実装済み:
 
-### State safety
+- atomic JSON state + backup recovery + corruption distinction
+- health-store / processed-files silent truncation撤廃
+- relative-path unbounded processed ledger
+- metadata-first fingerprint + conditional SHA
+- standalone watcher/rescan hardening
+- OS/path configurable runtime boundary
+- immutable/versioned Processed Data snapshot
+- manifest dataset count / bytes / SHA-256 validation
+- `complete.json` final marker
+- completed snapshot backup + final-marker-last-copy
+- raw directory → Processor → canonical snapshot standalone path
+- synthetic end-to-end hardening tests
 
-- `server/safeJsonFile.ts`
-  - crash-recoverable write
-  - primary/backup
-  - valid backup recovery + primary repair
-  - primary/backup双方invalid時のexplicit corruption error
-- `server/healthStore.ts`
-  - safe state利用
-  - load status区別
-  - import history 50件truncate撤廃
+最終根拠 `CX-O12D-001`: **PASS_WITH_ENVIRONMENT_EXCEPTION**
 
-### Portable processed-file ledger
+- synthetic hardening PASS
+- build PASS
+- hardcoded host path scan PASS
+- state truncation scan PASS
+- Processor forbidden import scan PASS
+- snapshot CLI usage PASS / exit `2`
+- final git status CLEAN
+- application errorなし
+- full regressionのみ既知`uv_os_get_passwd ENOMEM`
 
-- `server/processedFiles.ts`
-  - absolute `path` → raw root基準`relativePath`
-  - importer version 3
-  - 500件truncate撤廃
-  - metadata-first unchanged判定
-  - metadata変更時のみstreaming SHA-256
-  - same-content metadata changeは再importしない
-  - partial corrupt ledgerをsilent dropしない
+**O-12d Exit Gate: COMPLETE**
 
-### Watcher / rescan / config
+# O-12e — ACTIVE
 
-- watcherのmetadata-first処理
-- deterministic recursive scan
-- standalone `rescan`。HTTP server不要
-- watcher enable/disable
-- `HEALTH_IMPORT_DATA_DIR`
-- `PROCESSED_DATA_DIR`
-- `PROCESSED_DATA_BACKUP_DIR`
-- state/processed/backupをraw watch root配下へ置く設定をreject
-- `.env.example`から旧`K:` hardcode削除
+## E1 Migration tooling — 実装済み
 
-### Canonical snapshot
+追加:
 
-- `processor/snapshot.ts`
-  - immutable snapshot publication
-  - stable JSON serialization
-  - required dataset validation
-  - recordCount / byteLength / SHA-256
-  - manifest / complete marker validation
-  - overwrite拒否
-  - corruption/tamper reject
-  - completed snapshotのみbackup
-  - backup `complete.json`は最後にcopy
+- `processor/migration.ts`
+  - migration evidence validation
+  - rebuild semantic parity
+  - archive artifact byteLength/SHA-256 verification
+  - required evidence category check
+  - `migration-manifest.json`
+  - migration snapshot publication
+- `processor/localMigrationEvidence.ts`
+  - local legacy state presence/absence
+  - local private archive
+  - `health-store` semantic hash
+  - Cloud/local evidence merge
+- `processor/runLocalMigrationEvidence.ts`
+- `processor/runMigration.ts`
+- `scripts/o12e-firestore-evidence.py`
+  - six Firestore collection groups read-only scan
+  - rebuild collectionはcount + semantic SHA-256
+  - archive collectionはprivate JSONL
+  - document本文/health value/user IDをterminalへ表示しない
+  - Firestore write/delete = 0
+- `tests/processor-migration.test.ts`
+- `tests/processor-local-migration-evidence.test.ts`
+- `migration-input/`, `migration-output/` をGit ignore
 
-### Standalone directory Processor
+## O-12e確定分類
 
-- `processor/processDirectory.ts`
-  - raw root → C1/C2/C3 → canonical snapshot
-  - relative input provenance
-  - sourceFileId
-  - sleep-records/blocks/days/source summaries/overlaps/health metrics/diagnostics
-  - raw bodyをdiagnosticsへ保存しない
-- `processor/runDirectory.ts`
-- `npm run processor:snapshot -- <raw-root> <processed-data-root> [backup-root]`
+- Health Auto Export JSON: **Rebuild**
+- local health-store: **Rebuild if reproducible / otherwise block**
+- local processed-files: **Archive**
+- Firestore sleep_records: **Rebuild + semantic parity**
+- Firestore health_metric_records: **Rebuild + core semantic parity**
+- Firestore processed_drive_files: **Archive**
+- Firestore drive_sync_runs: **Archive**
+- Firestore ingest_batches: **Archive**
+- Firestore metric_audit_summaries: **Archive**
 
-### Synthetic hardening test
+Cloud旧実装とcanonicalで意図的に変えたmain-sleep分類はhealth metric rebuild hashから除外し、O-12h presentation parityへ分離する。
 
-`tests/processor-hardening.test.ts`
+## 次作業
 
-- safe state recovery/corruption
-- portable ledger
-- conditional hash
-- standalone watcher rescan + second-run skip
-- portable config
-- immutable snapshot + backup
-- overwrite reject
-- tamper reject
-- synthetic raw → canonical snapshot
-- absolute raw path non-persistence
+### User / Cloud Shell
 
-## 4. O-12d Exit Gate
+[`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md) を **1回だけ** 実行し、private ZIP bundleをN100へdownloadする。
 
-- [x] atomic/safe local state実装
-- [x] corruption distinction/recovery実装
-- [x] OS/path portable config実装
-- [x] portable unbounded processed ledger実装
-- [x] conditional fingerprint実装
-- [x] watcher/rescan hardening実装
-- [x] immutable snapshot publication実装
-- [x] completed-snapshot backup実装
-- [x] raw directory standalone snapshot Processor実装
-- [ ] `CX-O12D-001` synthetic hardening test PASS
-- [ ] root build PASS
-- [ ] static safety scans PASS
-- [ ] snapshot CLI usage PASS / exit 2
-- [ ] final worktree CLEAN
-- [ ] full regression PASSまたは既知ENOMEMのみ
-
-## 5. 次作業
+Cloud ShellはFirestore read-only。Cloud resource変更なし。
 
 ### Codex
 
-**`CX-O12D-001` 1回だけ。**  
-[`o12d-final-validation.md`](./o12d-final-validation.md) を最後まで一括実行する。実Health data/実Driveは使用しない。
+Cloud bundleを `migration-input/` へ置いた後、**`CX-O12E-001` 1回だけ**。
+
+[`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md) に従い:
+
+- synthetic tests/build
+- real raw rebuild
+- local/Drive completed snapshot
+- local evidence
+- Cloud/local evidence merge
+- private evidence ZIP Drive backup + SHA
+- migration snapshot
+- Firestore rebuild parity
+- archive completeness
+- final O-12e gate
+
+まで一括実行する。
 
 ### ChatGPT
 
-結果をreviewする。
+`CX-O12E-001`をreviewする。PASS系ならO-12eをCOMPLETEにし、O-12fへ進む。
 
-- PASS系ならO-12dを正式COMPLETE
-- application/compile/assertion failureならfailureをまとめて修正
-- O-12d COMPLETE後のみO-12e migration/reconstructionへ進む
+# O-12e Exit Gate
+
+- [ ] real rawからcanonical snapshot生成
+- [ ] local completed snapshot validation
+- [ ] Google Drive completed snapshot validation
+- [ ] local legacy state presence/absence確定
+- [ ] Firestore six category evidence取得
+- [ ] sleep_records rebuild parity
+- [ ] health_metric_records core rebuild parity
+- [ ] present archive sourceのartifact保存
+- [ ] final evidence ZIPをGoogle Driveへ保存しSHA一致
+- [ ] migration snapshot local/Drive validation
+- [ ] migration manifest `unresolved=[]`
+- [ ] final worktree CLEAN
 
 # 後続安全順序
 
-- O-12e: Rebuild/Migrate/Archive、既存データreconstruction。完了前にCloud data削除禁止
 - O-12f: Sleep CompassをProcessed Data-backed local APIへ移行
 - O-12g: same-origin、`127.0.0.1`、Tailscale Serve、Funnel不使用
 - O-12h: Cloud/local parity、restart/recovery。完了前にCloud operation停止禁止
