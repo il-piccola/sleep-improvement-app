@@ -9,12 +9,13 @@
     "import-server": "tsx server/server.ts",
     "processor:once": "tsx processor/runOnce.ts",
     "processor:snapshot": "tsx processor/runDirectory.ts",
+    "migration:finalize": "tsx processor/runMigration.ts",
     "dev:all": "concurrently \"npm run server\" \"npm run dev -- --host 0.0.0.0\"",
     "rescan": "tsx server/rescan.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:processor": "tsx tests/processor-health-auto-export.test.ts && tsx tests/processor-canonical-integration.test.ts && tsx tests/processor-health-metrics.test.ts && tsx tests/processor-hardening.test.ts",
+    "test:processor": "tsx tests/processor-health-auto-export.test.ts && tsx tests/processor-canonical-integration.test.ts && tsx tests/processor-health-metrics.test.ts && tsx tests/processor-hardening.test.ts && tsx tests/processor-migration.test.ts",
     "test": "npm run test:processor && node tests/sleep-analysis.test.mjs && tsx tests/cloud-api-sleep-day-boundary.test.ts && tsx tests/drive-sync-auth.test.ts && tsx tests/health-metrics-audit.test.ts && tsx tests/health-metric-aggregation.test.ts && tsx tests/sleep-window-metric-aggregation.test.ts && tsx tests/sleep-health-context.test.ts && tsx tests/sleep-health-change-insights.test.ts && tsx tests/sleep-day-visibility.test.ts && tsx tests/sleep-day-data-diagnostics.test.ts && tsx tests/health-auto-export-guide.test.ts"
   },
   "dependencies": {
