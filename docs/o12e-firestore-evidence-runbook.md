@@ -1,11 +1,16 @@
-# O-12e Firestore evidence / archive runbook
+# O-12e Firestore preservation runbook
 
 Status: **READY — Cloud Shell 1回**  
-Updated: **2026-08-24**
+Updated: **2026-08-26**  
+Decision: [`o12e-preservation-scope-decision.md`](./o12e-preservation-scope-decision.md)
 
-## 1. 安全境界
+## 1. 目的
 
-このrunbookはFirestoreのread-only evidence取得専用。
+Firestore既知6 collection groupをread-onlyで取得し、**6 categoryすべてをprivate JSONL fileとしてサルベージする**。
+
+このrunbookはapplication parityを確認しない。目的はCloud撤去前のデータ保全だけである。
+
+## 2. 安全境界
 
 禁止:
 
@@ -18,7 +23,34 @@ Updated: **2026-08-24**
 
 `scripts/o12e-firestore-evidence.py` は既知six collection groupsをcollection-group queryで各1回読み、Cloud Shell homeへprivate evidence bundleを作る。
 
-## 2. 費用境界
+## 3. 保存対象
+
+- `sleep_records`
+- `health_metric_records`
+- `processed_drive_files`
+- `drive_sync_runs`
+- `ingest_batches`
+- `metric_audit_summaries`
+
+present categoryはすべて:
+
+```text
+firestore-archive/<collection>.jsonl
+```
+
+として保存する。
+
+`o12e-firestore-evidence.json`には各categoryの:
+
+- presence
+- sourceCount
+- archive relativePath
+- byteLength
+- SHA-256
+
+を記録する。
+
+## 4. 費用境界
 
 Firestore document readは既存Google Cloud projectのFirestore usageとして扱われる。
 
@@ -28,13 +60,13 @@ Firestore document readは既存Google Cloud projectのFirestore usageとして�
 
 - six read queries
 - matching Firestore document reads
-- Firestore write/delete: **0**
+- Firestore write/update/delete: **0**
 
 新しい有料service・subscription・定期課金は追加しない。
 
 無料停止点はこのrunbook実行前。O-12dまでは完了しており、Cloud dataは変更されていない。
 
-## 3. Cloud Shell command
+## 5. Cloud Shell command
 
 既存outputと衝突しないtimestamp directoryを使う。
 
@@ -53,7 +85,7 @@ python3 "$SCRIPT" \
   --output-dir "$OUT"
 ```
 
-成功時に次だけ表示される:
+成功時にterminalへ出すのは次だけ:
 
 - project
 - user roots count
@@ -61,46 +93,42 @@ python3 "$SCRIPT" \
 - evidence file path
 - bundle ZIP path
 - bundle SHA-256
-- `Firestore writes/deletes: 0`
+- `Firestore writes/updates/deletes: 0`
 
 health values / Firestore document本文 / user IDは表示しない。
 
-## 4. Multiple user roots
+## 6. Multiple user roots
 
 collection group内で複数の `users/{userId}` rootを検出した場合、scriptは具体的user IDを表示せず `BLOCKED` で終了する。
 
 この場合、勝手に最大件数user等を選ばない。
 
-## 5. Download
+## 7. Download
 
 成功後、表示されたZIP pathをdownloadする。
-
-例:
 
 ```bash
 cloudshell download "$OUT.zip"
 ```
 
-Google Cloud公式Cloud Shellの `cloudshell download` を使用する。
-
 downloadしたZIPはN100のrepository配下:
 
 ```text
-migration-input/o12e-firestore-evidence.zip
+migration-input/o12e-firestore-evidence-<timestamp>.zip
 ```
 
 へ置く。
 
 `migration-input/` は `.gitignore` 対象。ZIPやFirestore archiveをGitへcommitしない。
 
-## 6. 返却してよい情報
+## 8. 返却してよい情報
 
 ChatGPTへ返す場合はterminal summaryのみ。
 
 返却可:
 
 ```text
-O-12e Firestore evidence: PASS
+O-12e Firestore preservation: PASS
 user roots: <count>
 sleep_records: <count>
 health_metric_records: <count>
@@ -109,7 +137,7 @@ drive_sync_runs: <count>
 ingest_batches: <count>
 metric_audit_summaries: <count>
 bundle sha256: <sha256>
-Firestore writes/deletes: 0
+Firestore writes/updates/deletes: 0
 ```
 
 返却しない:
@@ -120,8 +148,17 @@ Firestore writes/deletes: 0
 - access token
 - Secret/OAuth credential
 
-## 7. 次段階
+## 9. 完了後
 
-ZIPを `migration-input/` へ置いた後、O-12e N100 final taskを1回だけ実行する。
+ZIPをN100へ置いた後は [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md) で:
 
-その1回でsynthetic validation、real raw rebuild、Drive backup、local evidence、Cloud evidence merge、migration snapshot、semantic parity、final O-12e gate判定まで行う。
+- ZIP/artifact integrity確認
+- local private保存
+- local legacy stateのpresence/absenceとarchive
+- final preservation bundle作成
+- Google Drive copy
+- local / Drive SHA-256一致
+
+だけを確認する。
+
+real raw rebuild、semantic parity、migration snapshotはO-12eでは行わない。
