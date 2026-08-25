@@ -1,6 +1,6 @@
 # O-12 Local-first Cloud Exit Plan
 
-Status: **Approved baseline**  
+Status: **Approved baseline — O-12e preservation scope clarified 2026-08-26**  
 Scope: infrastructure and data-platform migration  
 Primary goal: **remove Sleep Compass runtime dependencies on chargeable Google Cloud services while preserving all existing data assets**
 
@@ -123,7 +123,7 @@ A future schema change must use a migration adapter or explicit backward-compati
 
 O-12 must not discard previously created Sleep Compass data.
 
-The migration inventory must cover at least:
+The preservation inventory must cover at least:
 
 - Health Auto Export JSON
 - `normalized-sleep-records.json`
@@ -132,15 +132,21 @@ The migration inventory must cover at least:
 - existing local `processed-files.json`
 - Firestore data used by Sleep Compass
 
-Each existing Cloud/Firestore dataset must be classified as one of:
+The general migration taxonomy remains:
 
-1. **Rebuild**: provably reproducible from retained source data and current processing logic.
+1. **Rebuild**: reproducible from retained source data and processing logic.
 2. **Migrate**: required in the new local/processed-data model.
-3. **Archive**: not required for current computation, but retained as historical evidence or operational history.
+3. **Archive**: retained as historical or source-of-record evidence.
 
-Unknown or unsupported existing data must not be silently dropped. If important data cannot be migrated or proven reproducible, Cloud deletion is blocked until a preservation method is defined.
+However, **O-12e is the data-preservation gate, not the Cloud/local semantic-parity gate**.
 
-A migration manifest must record counts and outcomes without embedding unnecessary personal health values.
+For O-12e, the known Firestore datasets are preserved as private file archives outside the Google Cloud runtime boundary. A preservation manifest/evidence record must capture collection counts, archive paths, byte lengths, and SHA-256 hashes without printing personal health values to terminal logs.
+
+The Firestore preservation bundle must be kept on the N100 host and copied to Google Drive outside the raw watch root, with SHA-256 equality verified after the copy.
+
+O-12e does not require a semantic comparison between Firestore records and newly generated Processed Data. It also does not require a clean-room reconstruction test. Those functional and behavioral checks belong to O-12h.
+
+Unknown or unsupported existing data must not be silently dropped. If important data cannot be preserved, Cloud deletion is blocked until a preservation method is defined.
 
 ## 6. Data Processor independence
 
@@ -211,7 +217,7 @@ At O-12 completion, normal Sleep Compass operation must not depend on:
 
 Google Drive remains permitted as a data store and backup destination, but access from the local runtime is through the OS-visible filesystem layer rather than the Google Drive API.
 
-Cloud removal is staged. No destructive deletion occurs before local parity and data-preservation checks pass.
+Cloud removal is staged. Data preservation must complete before destructive deletion is considered, but preservation alone does not authorize deletion. Cloud/local behavior and recovery must be validated in O-12h, Cloud automatic processing must be stopped and local-only operation verified in O-12i, and destructive Firestore/Cloud deletion is reserved for O-12j.
 
 ## 10. Execution map
 
@@ -225,14 +231,14 @@ For readability, O-12 is managed as six major stages. The O-12a through O-12j wo
 | **Stage 2 — Contract** | **O-12b** | Processed Data Contract | Schemas, versioning, provenance, legacy-reader policy, snapshot rules, compatibility policy, and migration-manifest format are defined and testable. |
 | **Stage 3 — Processor** | **O-12c** | Processor independence | Data Processor core can run without Sleep Compass Web/API, Firebase, Cloud Run, Firestore, Tailscale, or Google Drive API. |
 | **Stage 3 — Processor** | **O-12d** | Processor hardening | Safe snapshots, corruption handling, OS/path independence, efficient fingerprinting, watcher/rescan, and Google Drive processed-data backup are working. |
-| **Stage 4 — Migration** | **O-12e** | Existing-data migration | Every important legacy/Cloud dataset is proven rebuilt, migrated, or deliberately archived; reconstruction test passes. |
+| **Stage 4 — Preservation** | **O-12e** | Existing-data preservation | Important Firestore/local data has been salvaged to private files, counts/hashes are recorded, and verified copies exist outside the Google Cloud runtime boundary. No semantic parity or destructive deletion is required here. |
 | **Stage 5 — Sleep Compass local runtime** | **O-12f** | Sleep Compass independence | Sleep Compass consumes Processed Data instead of Cloud persistence and required local API parity is available. |
 | **Stage 5 — Sleep Compass local runtime** | **O-12g** | Local Web + Tailscale | React/API are same-origin, server is localhost-only, local Firebase Auth dependency is removed, and Tailscale Serve access works. |
-| **Stage 5 — Sleep Compass local runtime** | **O-12h** | Parallel validation and recovery test | Cloud/local parity, new-data processing, deduplication, restart behavior, and clean-room recovery are verified. |
+| **Stage 5 — Sleep Compass local runtime** | **O-12h** | Parallel validation and recovery test | Cloud/local parity, new-data processing, deduplication, restart behavior, intentional-difference review, and clean-room recovery are verified. |
 | **Stage 6 — Cloud exit** | **O-12i** | Cloud operation stop | Cloud automatic processing is stopped and new data continues to process correctly using the local path alone. |
-| **Stage 6 — Cloud exit** | **O-12j** | Complete Cloud exit | Final resource/Billing audit is complete, required data is preserved, Billing is disabled, and the dedicated project is shut down when confirmed safe. |
+| **Stage 6 — Cloud exit** | **O-12j** | Complete Cloud exit | Final resource/Billing audit is complete; preserved data is verified; Firestore/Cloud resources are removed when safe; Billing is disabled; and the project is shut down only if confirmed dedicated. |
 
-The stage order and gates are mandatory. In particular, O-12e must complete before destructive Cloud data removal, O-12h must pass before Cloud operation is stopped, and O-12i must verify local-only operation before O-12j.
+The stage order and gates are mandatory. O-12e must complete before destructive Cloud data removal is considered. O-12h must pass before Cloud operation is stopped. O-12i must verify local-only operation before Firestore/Cloud deletion, Billing disablement, or project shutdown in O-12j.
 
 Detailed progress is maintained separately in [`docs/o12-progress.md`](./o12-progress.md). This baseline describes what O-12 means; the progress document records where implementation currently stands.
 
@@ -244,7 +250,7 @@ Confirm:
 
 - all Sleep Compass-related Google Cloud resources
 - Billing services/SKUs actually associated with the project
-- Firestore datasets and their migration classification
+- Firestore datasets and their preservation classification
 - existing Google Drive source coverage
 - existing processed/local datasets
 - current host runtime, paths, and Tailscale state
@@ -281,17 +287,22 @@ This stage includes:
 - watcher/rescan operation
 - processed-data Google Drive snapshot backup
 
-### Stage 4 — Migration
+### Stage 4 — Preservation
 
-Move all existing data into the new preservation model.
+Preserve all important existing Cloud/local data before any destructive cleanup.
 
-For every important legacy/Cloud dataset, prove one of:
+For Firestore:
 
-- successfully rebuilt,
-- successfully migrated,
-- deliberately archived.
+- read the known Sleep Compass collection groups without writes/deletes,
+- archive every present collection to private JSONL files,
+- record collection counts, byte lengths, and SHA-256 hashes,
+- keep the original preservation bundle on the N100 host,
+- copy the same bundle to Google Drive outside the raw watch root,
+- verify the copied bundle hash matches.
 
-Run a clean-room reconstruction test from retained source and migration assets. Important historical data must remain readable after reconstruction.
+For local legacy state, record presence/absence and privately archive present state.
+
+Do not require Cloud/local semantic parity, application tests, or clean-room reconstruction to close this stage. Those checks belong to Stage 5 / O-12h.
 
 ### Stage 5 — Sleep Compass local runtime
 
@@ -305,19 +316,22 @@ Complete:
 - removal of local Firebase Auth dependency
 - Tailscale Serve access
 - parity checks against the existing Cloud version
+- new-data processing and deduplication checks
+- restart and clean-room recovery tests
 
 ### Stage 6 — Cloud exit
 
-Only after local processing, migration, Web operation, and recovery tests pass:
+Only after local processing, preservation, Web operation, parity, and recovery tests pass:
 
 1. stop Cloud automatic processing first,
 2. verify new data is processed locally without Cloud assistance,
 3. perform final resource and Billing audit,
-4. preserve any remaining required data,
-5. disable Billing for the Sleep Compass project,
-6. shut down the dedicated Google Cloud project when confirmed safe.
+4. re-verify preserved data and, if desired, evaluate an additional native Firestore backup as a deletion-time rollback option,
+5. delete Sleep Compass Firestore/Cloud resources only when no runtime still depends on them,
+6. disable Billing for the Sleep Compass project when safe,
+7. shut down the Google Cloud project only when confirmed dedicated and safe.
 
-The principle is **stop → verify → preserve → disable billing → shut down**.
+The principle is **preserve → migrate runtime → validate/recover → stop → verify local-only → delete → disable billing → shut down**.
 
 ## 11. Completion criteria
 
@@ -327,15 +341,16 @@ O-12 is complete only when all of the following are true:
 2. Sleep Compass can operate from Processed Data without Cloud persistence.
 3. Processed Data is documented and usable by other applications.
 4. Important Processed Data is backed up to Google Drive as versioned completed snapshots.
-5. Existing raw, local, processed, and Firestore data has been rebuilt, migrated, or archived without unexplained loss.
+5. Existing raw, local, processed, and Firestore data has been preserved without unexplained loss, with private Firestore archives retained outside the Cloud runtime boundary.
 6. Drive letters and absolute host paths are not part of persistent data identity.
 7. The runtime design is portable across Windows, macOS, and Linux with OS-specific changes kept at the filesystem/service boundary.
 8. Reprocessing the same source does not create unintended duplicates.
 9. Local state corruption can recover from a known-good snapshot or source reconstruction.
-10. Web and API run locally and are reachable through Tailscale without direct LAN/public exposure.
-11. Normal operation no longer depends on Cloud Run, Firestore, Cloud Scheduler, Firebase Hosting/Auth, or Google Drive API.
-12. No new paid cloud service was introduced for O-12.
-13. The Sleep Compass Google Cloud project has no active Billing relationship at final cutover and, if confirmed dedicated to Sleep Compass, is shut down.
+10. Cloud/local behavior, intentional differences, restart behavior, and clean-room recovery have been validated before Cloud shutdown.
+11. Web and API run locally and are reachable through Tailscale without direct LAN/public exposure.
+12. Normal operation no longer depends on Cloud Run, Firestore, Cloud Scheduler, Firebase Hosting/Auth, or Google Drive API.
+13. No new paid cloud service was introduced for O-12.
+14. The Sleep Compass Google Cloud project has no active Billing relationship at final cutover and, if confirmed dedicated to Sleep Compass, is shut down.
 
 ## 12. Out of scope
 
