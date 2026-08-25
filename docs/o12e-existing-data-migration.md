@@ -1,12 +1,15 @@
-# O-12e 既存データ移行
+# O-12e 既存データ保全
 
-Status: **ACTIVE — E1 tooling実装済み / Cloud evidence取得待ち**  
-Phase: **O-12e — Existing-data migration**  
-Updated: **2026-08-24**
+Status: **ACTIVE — preservation scope確定 / Firestore backup実行待ち**  
+Phase: **O-12e — Existing-data preservation**  
+Updated: **2026-08-26**  
+Decision: [`o12e-preservation-scope-decision.md`](./o12e-preservation-scope-decision.md)
 
 ## 1. 目的
 
-O-12eでは、Cloud停止・削除の前に既存データを `Rebuild / Migrate / Archive` へ確定し、重要データがlocal-first Processed Dataへ再構築または保存されたことを証明する。
+O-12eの主目的は、Cloud撤去前に **Firestoreと既存local stateを失わない形でサルベージし、GCP project外へ保存すること** とする。
+
+このPhaseでは新ProcessorとFirestoreのsemantic parityを証明しない。新ローカルシステムの正当性・Cloud/local parity・clean-room recoveryはO-12hで確認する。
 
 このPhaseでは **Cloud dataを削除しない**。Cloud Run / Scheduler / Billingも停止・変更しない。
 
@@ -26,110 +29,138 @@ O-12eでは、Cloud停止・削除の前に既存データを `Rebuild / Migrate
 
 ## 3. O-12e確定分類
 
-| Source | Classification | O-12e handling |
-| --- | --- | --- |
-| Health Auto Export JSON | **Rebuild** | N100 raw rootからcanonical snapshotを再生成 |
-| local `health-store.json` | **Rebuild if reproducible / otherwise block** | 存在時はsemantic hashでcanonical `sleep-records`との一致を確認。元fileもprivate archive |
-| local `processed-files.json` | **Archive** | 存在時はprivate archive。canonical stateには直接移植しない |
-| Firestore `sleep_records` | **Rebuild + parity** | health valueを表示せず、共通semantic projectionのcount + SHA-256でlocal canonicalと比較 |
-| Firestore `health_metric_records` | **Rebuild + parity** | metric/value/window/sourceのcore semantic projectionをcount + SHA-256で比較。旧Cloudとcanonicalで意図的に異なるmain-sleep UI分類はhash対象外 |
-| Firestore `processed_drive_files` | **Archive** | raw Firestore document JSONLをprivate archive |
-| Firestore `drive_sync_runs` | **Archive** | private archive |
-| Firestore `ingest_batches` | **Archive** | private archive |
-| Firestore `metric_audit_summaries` | **Archive** | private archive |
+### Firestore
 
-`maya-daily-observation-console` はO-12eのdata migration対象ではない。O-12j dedicated-project判定へ引き継ぐ。
+既知6 categoryはすべて **Archive** としてprivate fileへ保存する。
 
-## 4. E1 — Migration tooling
+| Firestore source | O-12e handling |
+| --- | --- |
+| `sleep_records` | raw Firestore document JSONLをprivate archive |
+| `health_metric_records` | raw Firestore document JSONLをprivate archive |
+| `processed_drive_files` | raw Firestore document JSONLをprivate archive |
+| `drive_sync_runs` | raw Firestore document JSONLをprivate archive |
+| `ingest_batches` | raw Firestore document JSONLをprivate archive |
+| `metric_audit_summaries` | raw Firestore document JSONLをprivate archive |
 
-実装済み:
+各categoryについて、document count・artifact path・byteLength・SHA-256をevidenceへ記録する。
 
-- `processor/migration.ts`
-  - migration evidence validation
-  - archive artifact byteLength/SHA-256 verification
-  - Firestore rebuild semantic parity
-  - required evidence category enforcement
-  - `migration-manifest.json`生成
-  - migration snapshot publication
-- `processor/localMigrationEvidence.ts`
-  - local legacy state存在/不在の証拠化
-  - present stateのprivate archive
-  - `health-store` semantic hash
-  - Cloud/local evidence merge
-- `processor/runLocalMigrationEvidence.ts`
-- `processor/runMigration.ts`
-- `scripts/o12e-firestore-evidence.py`
-  - Firestore six collection groups read-only scan
-  - document本文をterminalへ表示しない
-  - rebuild collectionはcount + semantic SHA-256のみevidenceへ記録
-  - archive collectionはprivate JSONL artifact
-  - Firestore write/delete = 0
-- `tests/processor-migration.test.ts`
-- `tests/processor-local-migration-evidence.test.ts`
+### Local / raw
 
-Local-only working directories:
+| Source | O-12e handling |
+| --- | --- |
+| Health Auto Export JSON | 既存Google Drive原本を保持。Processorから変更・削除しない |
+| local `health-store.json` | 存在時のみprivate archive。不在ならABSENTを記録 |
+| local `processed-files.json` | 存在時のみprivate archive。不在ならABSENTを記録 |
+| `normalized-sleep-records.json` / Apple Health XML | 発見時は既存sourceとして保持。O-12eの必須探索対象にはしない |
 
-- `migration-input/`
-- `migration-output/`
+`maya-daily-observation-console` はO-12e対象外。停止・削除せずO-12jへ引き継ぐ。
 
-両方ともGit管理外。
+## 4. 保存形式
 
-## 5. E2 — Firestore evidence / archive
+Firestore archive bundle例:
+
+```text
+O-12e evidence bundle/
+  o12e-firestore-evidence.json
+  firestore-archive/
+    sleep_records.jsonl
+    health_metric_records.jsonl
+    processed_drive_files.jsonl
+    drive_sync_runs.jsonl
+    ingest_batches.jsonl
+    metric_audit_summaries.jsonl
+  legacy-local/                 # local stateが存在する場合
+```
+
+archive JSONLには健康値等が含まれ得るためprivate扱いとする。
+
+禁止:
+
+- Gitへのcommit
+- terminalへのarchive本文表示
+- ChatGPT返却へのhealth value / user ID / token等の記載
+
+## 5. 保存先と完全性確認
+
+bundleは最低限2か所へ保存する。
+
+1. N100 local storage
+2. Google Driveのraw watch rootとは別のbackup location
+
+確認するもの:
+
+- collectionごとのdocument count
+- artifact byteLength
+- artifact SHA-256
+- bundle SHA-256
+- N100 local bundleとGoogle Drive copyのSHA-256一致
+
+ここで必要なのは **backup integrity test** だけであり、application parity testではない。
+
+## 6. Firestore evidence / archive
 
 正式手順:
 
 [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)
 
-1回のCloud Shell実行でsix collection groupsを読み取る。
+Cloud Shellで1回だけread-only collectorを実行する。
 
-出力:
+collectorは既知6 collection groupを読み、6 categoryすべてをprivate JSONLへ保存する。
 
-- `o12e-firestore-evidence.json`
-- `firestore-archive/*.jsonl`
-- 上記を含むZIP bundle
+Firestore operation:
 
-terminalへ出すのはcollection count、bundle path、bundle SHA-256のみ。document本文、user ID、health valueは表示しない。
+- read: あり
+- write/update/delete: **0**
 
-Cloud Shell bundleはN100へdownloadし、repoの `migration-input/` 配下へ置く。
+## 7. N100 preservation copy
 
-## 6. E3 — N100 final migration / validation
+Cloud Shellで作成したZIPをN100へdownload後、[`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md) に従う。
 
-Cloud bundleのdownload後、Codex確認は **1回だけ** にまとめる。
+N100側で行うのは主に:
 
-同一task内で:
+1. Cloud Shell ZIP SHA-256確認
+2. ZIPをlocal private preservation directoryへ保持
+3. local legacy stateのpresence / absence確認と、存在時のprivate archive
+4. Cloud archive + local legacy archiveを最終evidence bundleへまとめる
+5. Google Drive backup locationへcopy
+6. copy後SHA-256一致確認
+7. archive JSONLが読めることとcollection count metadataが揃っていることを確認
 
-1. latest `master` sync
-2. O-12e synthetic tests
-3. build
-4. Firestore bundle SHA / evidence artifact verification
-5. current raw rootからreal canonical rebuild snapshot生成
-6. completed snapshotをGoogle Drive backupへcopy
-7. local legacy state evidence生成
-8. Cloud + local evidence merge
-9. migration snapshot生成
-10. `migration-manifest.json` validation
-11. Firestore `sleep_records` / `health_metric_records` semantic parity判定
-12. archive artifact completeness確認
-13. final worktree CLEAN
+O-12eのためにreal raw rebuild、semantic parity、migration snapshotを必須実行しない。
 
-実Health値は返却に含めない。
-
-## 7. O-12e Exit Gate
+## 8. O-12e Exit Gate
 
 O-12eをCOMPLETEにできる条件:
 
-- [ ] real Health Auto Export rawからcompleted canonical snapshot生成
-- [ ] local completed snapshot validation PASS
-- [ ] Google Drive backup completed snapshot validation PASS
-- [ ] local `health-store` / `processed-files` presenceを明示
-- [ ] Firestore six category evidenceがすべて存在
-- [ ] `sleep_records` rebuild parity matched、または明示的に説明・保存された差異のみ
-- [ ] `health_metric_records` core rebuild parity matched、または明示的に説明・保存された差異のみ
-- [ ] archive対象のpresent collectionにartifact + byteLength + SHA-256が存在
-- [ ] migration manifest `unresolved=[]`
-- [ ] migration status `completed` または、rejected/warningのみの `completed_with_warnings` で重要データ欠落なし
-- [ ] Cloud data削除なし
-- [ ] final worktree CLEAN
+- [ ] Firestore既知6 categoryをread-only収集済み
+- [ ] 6 categoryすべてのdocument count記録済み
+- [ ] present categoryすべてにprivate JSONL artifactあり
+- [ ] artifactごとのbyteLength / SHA-256記録済み
+- [ ] archive bundleをN100 localへ保存済み
+- [ ] archive bundleをGoogle Driveへ保存済み
+- [ ] local / Drive bundle SHA-256一致
+- [ ] local `health-store.json` / `processed-files.json` のpresence / absence記録済み
+- [ ] present local legacy stateはprivate archive済み
+- [ ] Firestore write/update/delete = 0
+- [ ] Cloud Run / Scheduler / Billing変更 = 0
 
-O-12e COMPLETE前にCloud dataを削除しない。
-O-12h COMPLETE前にCloud operationを停止しない。
+次はO-12e Exit Gateに含めない。
+
+- Firestoreとnew Processed Dataのsemantic parity
+- API / presentation parity
+- clean-room recovery
+- Firestore削除
+
+これらは後続phaseへ移す。
+
+## 9. Firestore削除の扱い
+
+O-12e COMPLETEは **「削除してもデータを失わない」ための保存条件**を満たすだけであり、Firestoreを直ちに削除する許可ではない。
+
+現行Cloud runtimeはまだFirestoreを利用しているため、Firestore削除はO-12jまで行わない。
+
+必須順序:
+
+`O-12e backup → O-12f local persistence移行 → O-12g local access → O-12h parity/recovery → O-12i Cloud automatic processing停止 + local-only確認 → O-12j Firestore/Cloud削除`
+
+削除直前にFirestore native backup等の追加ロールバック保険を採用する場合は、その時点で必要性・料金・保存先を確認する。O-12eの必須条件にはしない。
