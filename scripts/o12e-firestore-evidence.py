@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""O-12e Firestore read-only evidence/archive collector.
+"""O-12e Firestore read-only preservation collector.
 
 Reads the six known Sleep Compass collection groups once, writes no Firestore data,
-prints no document contents, and creates a private local Cloud Shell evidence bundle.
+prints no document contents, and archives every present document into a private
+Cloud Shell bundle for later N100 + Google Drive preservation.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-EVIDENCE_VERSION = "1"
+EVIDENCE_VERSION = "2"
 DATABASE = "(default)"
 COLLECTIONS = [
     "sleep_records",
@@ -74,89 +75,8 @@ def run_collection_group(project: str, token: str, collection: str) -> list[dict
     return [item["document"] for item in payload if isinstance(item, dict) and "document" in item]
 
 
-def decode_firestore_value(value: Any) -> Any:
-    if not isinstance(value, dict):
-        return None
-    if "nullValue" in value:
-        return None
-    if "booleanValue" in value:
-        return bool(value["booleanValue"])
-    if "integerValue" in value:
-        return int(value["integerValue"])
-    if "doubleValue" in value:
-        return normalize_number(float(value["doubleValue"]))
-    if "stringValue" in value:
-        return value["stringValue"]
-    if "timestampValue" in value:
-        return value["timestampValue"]
-    if "bytesValue" in value:
-        return value["bytesValue"]
-    if "referenceValue" in value:
-        return value["referenceValue"]
-    if "geoPointValue" in value:
-        return value["geoPointValue"]
-    if "arrayValue" in value:
-        return [decode_firestore_value(item) for item in value["arrayValue"].get("values", [])]
-    if "mapValue" in value:
-        return {
-            key: decode_firestore_value(item)
-            for key, item in value["mapValue"].get("fields", {}).items()
-        }
-    return None
-
-
-def decode_fields(document: dict[str, Any]) -> dict[str, Any]:
-    fields = document.get("fields", {})
-    if not isinstance(fields, dict):
-        return {}
-    return {key: decode_firestore_value(value) for key, value in fields.items()}
-
-
-def normalize_number(value: float) -> int | float:
-    if value == 0:
-        return 0
-    return int(value) if value.is_integer() else value
-
-
 def stable_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def semantic_hash(records: list[dict[str, Any]], projection) -> str:
-    lines = sorted(stable_json(projection(decode_fields(document))) for document in records)
-    body = "" if not lines else "\n".join(lines) + "\n"
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
-
-
-def sleep_projection(value: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "durationMinutes": value.get("durationMinutes"),
-        "end": value.get("end"),
-        "originalValue": value.get("originalValue"),
-        "sourceFormat": value.get("sourceFormat"),
-        "sourceKey": value.get("sourceKey"),
-        "stage": value.get("stage"),
-        "start": value.get("start"),
-    }
-
-
-def health_projection(value: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "aggregation": value.get("aggregation"),
-        "date": value.get("date"),
-        "granularity": value.get("granularity"),
-        "metricGroup": value.get("metricGroup"),
-        "metricName": value.get("metricName"),
-        "sourceKey": value.get("sourceKey"),
-        "unit": value.get("unit"),
-        "value": value.get("value"),
-        "valueAvg": value.get("valueAvg"),
-        "valueCount": value.get("valueCount"),
-        "valueMax": value.get("valueMax"),
-        "valueMin": value.get("valueMin"),
-        "windowEnd": value.get("windowEnd"),
-        "windowStart": value.get("windowStart"),
-    }
 
 
 def user_roots(documents_by_collection: dict[str, list[dict[str, Any]]]) -> set[str]:
@@ -206,32 +126,12 @@ def source_entry(
     root: Path,
 ) -> dict[str, Any]:
     count = len(documents)
-    presence = "present" if count else "absent"
-    if collection == "sleep_records":
-        return {
-            "sourceSystem": "firestore",
-            "dataset": collection,
-            "classification": "rebuild",
-            "presence": presence,
-            "sourceCount": count,
-            "semanticSha256": semantic_hash(documents, sleep_projection),
-        }
-    if collection == "health_metric_records":
-        return {
-            "sourceSystem": "firestore",
-            "dataset": collection,
-            "classification": "rebuild",
-            "presence": presence,
-            "sourceCount": count,
-            "semanticSha256": semantic_hash(documents, health_projection),
-        }
-
     artifact = write_archive(root, collection, documents)
-    entry = {
+    entry: dict[str, Any] = {
         "sourceSystem": "firestore",
         "dataset": collection,
         "classification": "archive",
-        "presence": presence,
+        "presence": "present" if count else "absent",
         "sourceCount": count,
     }
     if artifact:
@@ -284,7 +184,7 @@ def main() -> int:
         evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         zip_path, zip_sha = create_zip(root)
 
-        print("O-12e Firestore evidence: PASS")
+        print("O-12e Firestore preservation: PASS")
         print(f"project: {args.project}")
         print(f"user roots: {len(roots)}")
         for collection in COLLECTIONS:
@@ -292,7 +192,7 @@ def main() -> int:
         print(f"evidence file: {evidence_path}")
         print(f"bundle: {zip_path}")
         print(f"bundle sha256: {zip_sha}")
-        print("Firestore writes/deletes: 0")
+        print("Firestore writes/updates/deletes: 0")
         return 0
     except Exception as error:
         print(f"FAIL: {error}", file=sys.stderr)
