@@ -1,38 +1,38 @@
-# O-12e N100 final migration / validation — CX-O12E-001
+# O-12e N100 final preservation — CX-O12E-001
 
 Status: **READY — Cloud evidence bundle download後に1回だけ実行**  
-Updated: **2026-08-24**
+Updated: **2026-08-26**  
+Decision: [`o12e-preservation-scope-decision.md`](./o12e-preservation-scope-decision.md)
 
 ## 1. 目的
 
-O-12eのN100側作業を1回へ統合する。
+O-12eのN100側作業を **バックアップ完全性確認と二重保存** に限定する。
 
 このtask内で:
 
-1. synthetic O-12e tests
-2. build
-3. Firestore evidence bundle展開 / SHA確認
-4. real Health Auto Export rawからcanonical rebuild
-5. completed snapshot local validation
-6. completed snapshot Google Drive backup
-7. local legacy state evidence
-8. Cloud + local evidence merge
-9. private evidence ZIP生成 + Google Drive copy + SHA一致
-10. migration snapshot生成
-11. rebuild parity / archive completeness
-12. O-12e Exit Gate判定
+1. Firestore preservation ZIP SHA-256取得
+2. ZIP展開
+3. evidence JSON読取
+4. six collection JSONLの存在・件数・byteLength・SHA-256確認
+5. original ZIPをN100 localに保持
+6. original ZIPをGoogle Drive backup locationへcopy
+7. local / Drive ZIP SHA-256一致確認
+8. local legacy state presence / absence確認
+9. present local legacy stateをprivate archiveしてDriveへcopy
+10. O-12e Exit Gate判定
 
-をまとめて実行する。
+をまとめて行う。
+
+**npm test / build / real raw rebuild / semantic parity / migration snapshotは実施しない。**
 
 ## 2. 安全境界
 
 許可:
 
-- configured raw Health Auto Export JSONのread
-- local Processed Data directoryへのwrite
-- Google Driveの新規Processed Data backup directoryへのwrite
-- `migration-input/` / `migration-output/`へのlocal write
-- local legacy stateのread/private archive
+- `migration-input/`のCloud evidence ZIP read
+- local preservation directoryへのwrite
+- Google Drive backup directoryへのnew file copy
+- local legacy stateのread/private copy
 
 禁止:
 
@@ -44,36 +44,20 @@ O-12eのN100側作業を1回へ統合する。
 - archive JSONL本文のterminal返却
 - Secret/token/OAuth credential表示
 
-## 3. 現在のN100 host boundary
-
-観測済みraw root:
-
-```text
-L:\マイドライブ\Health Auto Export\Sleep
-```
-
-これはrunbook上の現在host値であり、implementationにはhardcodeしない。
-
-Google Drive backup root候補:
-
-```text
-L:\マイドライブ\Health Auto Export\Processed Data Backup
-```
-
-raw watch root `...\Sleep` の外側に置く。
-
-## 4. Precondition
+## 3. Precondition
 
 repo rootで:
 
 - branch `master`
 - worktree CLEAN
 - `migration-input/o12e-firestore-evidence*.zip` が1個以上存在
-- `L:\マイドライブ\Health Auto Export\Sleep` が存在
+- Google Drive filesystemが利用可能
 
 Cloud evidence ZIPがない場合はBLOCKED。Cloud再queryはこのtaskから行わない。
 
-## 5. Git sync
+## 4. Git sync
+
+repository codeは実行しないが、正式runbook/versionを揃えるためsyncだけ行う。
 
 ```powershell
 git status --short
@@ -89,229 +73,211 @@ git status --short
 git rev-parse HEAD
 ```
 
-## 6. O-12e synthetic validation
-
-```powershell
-npm run test:processor
-npm run build
-```
-
-application/compile/assertion errorならFAIL。
-
-既知 `uv_os_get_passwd ENOMEM` がO-12e targeted testではなく無関係なfull regressionで出ることを理由に追加full regressionは実施しない。
-
-## 7. Evidence bundle
-
-最新ZIPを選ぶ。
+## 5. Cloud preservation ZIPを選ぶ
 
 ```powershell
 $bundle = Get-ChildItem -LiteralPath "migration-input" -Filter "o12e-firestore-evidence*.zip" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
-```
 
-ZIP SHA:
-
-```powershell
+if (-not $bundle) { throw "O-12e Firestore preservation ZIP not found" }
 $cloudBundleSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundle.FullName).Hash.ToLowerInvariant()
 ```
 
-展開先はZIP basename専用directoryとし、既存directoryを削除しない。
+## 6. ZIP展開
+
+既存directoryは削除しない。
 
 ```powershell
 $evidenceRoot = Join-Path "migration-input" $bundle.BaseName
 if (Test-Path -LiteralPath $evidenceRoot) { throw "Evidence extraction directory already exists" }
 Expand-Archive -LiteralPath $bundle.FullName -DestinationPath $evidenceRoot
+
+$evidencePath = Join-Path $evidenceRoot "o12e-firestore-evidence.json"
+if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
+  throw "o12e-firestore-evidence.json missing"
+}
+$evidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
 ```
 
-必須:
+## 7. six collection archive integrity
+
+必須collection:
+
+```powershell
+$required = @(
+  'sleep_records',
+  'health_metric_records',
+  'processed_drive_files',
+  'drive_sync_runs',
+  'ingest_batches',
+  'metric_audit_summaries'
+)
+```
+
+各collectionについて:
+
+- evidence entryが1件だけ存在
+- `sourceCount >= 0`
+- count 0なら`presence=absent`
+- count > 0なら`presence=present`
+- presentなら`archiveArtifact`必須
+- artifact file存在
+- artifact byteLength一致
+- artifact SHA-256一致
+- JSONL non-empty line count = sourceCount
+
+PowerShell例:
+
+```powershell
+$results = @()
+foreach ($name in $required) {
+  $entries = @($evidence.sources | Where-Object { $_.sourceSystem -eq 'firestore' -and $_.dataset -eq $name })
+  if ($entries.Count -ne 1) { throw "Invalid evidence entry count: $name" }
+  $entry = $entries[0]
+  $count = [int]$entry.sourceCount
+
+  if ($count -eq 0) {
+    if ($entry.presence -ne 'absent') { throw "Zero-count presence mismatch: $name" }
+    $results += [pscustomobject]@{ dataset=$name; count=0; archive='ABSENT' }
+    continue
+  }
+
+  if ($entry.presence -ne 'present' -or -not $entry.archiveArtifact) {
+    throw "Archive metadata missing: $name"
+  }
+
+  $artifactPath = Join-Path $evidenceRoot $entry.archiveArtifact.relativePath
+  if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+    throw "Archive file missing: $name"
+  }
+
+  $file = Get-Item -LiteralPath $artifactPath
+  if ($file.Length -ne [int64]$entry.archiveArtifact.byteLength) {
+    throw "Archive byteLength mismatch: $name"
+  }
+
+  $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
+  if ($sha -ne ([string]$entry.archiveArtifact.sha256).ToLowerInvariant()) {
+    throw "Archive SHA mismatch: $name"
+  }
+
+  $lineCount = (Get-Content -LiteralPath $artifactPath | Where-Object { $_.Trim().Length -gt 0 }).Count
+  if ($lineCount -ne $count) { throw "Archive count mismatch: $name" }
+
+  $results += [pscustomobject]@{ dataset=$name; count=$count; archive='PASS' }
+}
+```
+
+JSONL本文はterminalへ表示しない。
+
+## 8. Google Driveへoriginal Firestore ZIPをcopy
+
+現在のhost boundary候補:
 
 ```text
-o12e-firestore-evidence.json
+L:\マイドライブ\Health Auto Export\Processed Data Backup\firestore-archives
 ```
 
-## 8. Runtime paths
+これはrunbook上の現在値でありimplementation hardcodeではない。raw watch root `...\Sleep` の外側に置く。
 
 ```powershell
-$RAW_ROOT = "L:\マイドライブ\Health Auto Export\Sleep"
-$BACKUP_ROOT = "L:\マイドライブ\Health Auto Export\Processed Data Backup"
-$PROCESSED_ROOT = Join-Path $env:LOCALAPPDATA "SleepCompass\processed-data"
-$MIGRATION_OUTPUT = Join-Path (Get-Location) "migration-output"
-New-Item -ItemType Directory -Force -Path $MIGRATION_OUTPUT | Out-Null
+$DRIVE_ARCHIVE_DIR = "L:\マイドライブ\Health Auto Export\Processed Data Backup\firestore-archives"
+New-Item -ItemType Directory -Force -Path $DRIVE_ARCHIVE_DIR | Out-Null
+
+$driveBundle = Join-Path $DRIVE_ARCHIVE_DIR $bundle.Name
+if (Test-Path -LiteralPath $driveBundle) { throw "Drive backup already exists; refusing overwrite" }
+Copy-Item -LiteralPath $bundle.FullName -Destination $driveBundle
+
+$driveBundleSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $driveBundle).Hash.ToLowerInvariant()
+if ($driveBundleSha -ne $cloudBundleSha) { throw "Firestore preservation ZIP SHA mismatch" }
 ```
 
-`dataDir`はcode defaultを決め打ちせず、現在configから取得する。
+Cloud Shellからdownloadしたoriginal ZIPそのものをcopyする。再圧縮による差異を入れない。
 
-```powershell
-$tsx = Join-Path (Get-Location) "node_modules\.bin\tsx.cmd"
-$configJson = & $tsx -e "import { loadHealthImportConfig } from './server/config.ts'; const c=loadHealthImportConfig(); console.log(JSON.stringify({dataDir:c.dataDir}))"
-$config = $configJson | ConvertFrom-Json
-$DATA_DIR = $config.dataDir
-```
+## 9. Local legacy state
 
-## 9. Real raw rebuild snapshot
+local stateは存在する場合だけprivate archiveする。
 
-実Healthデータ値は出力しない。Processor summaryだけ取得する。
+確認候補:
 
-```powershell
-$env:PROCESSOR_REVISION = (git rev-parse HEAD).Trim()
-$rawJson = & $tsx processor/runDirectory.ts $RAW_ROOT $PROCESSED_ROOT $BACKUP_ROOT
-if ($LASTEXITCODE -ne 0) { throw "Real raw rebuild failed" }
-$rawResult = ($rawJson -join "`n") | ConvertFrom-Json
-$sourceSnapshot = Join-Path $PROCESSED_ROOT (Join-Path "snapshots" $rawResult.snapshotId)
-```
+- `.env.local`の`HEALTH_IMPORT_DATA_DIR`
+- 未設定ならrepo `server-data/`
 
-必須:
+対象:
 
-- `failedFileCount = 0` が原則
-- `sleepRecordCount > 0`
-- local snapshot complete validation PASS
-- Drive backup complete validation PASS
+- `health-store.json`
+- `processed-files.json`
+- 各`.bak`が存在する場合はそれも含める
 
-validation:
+不在ならABSENTと記録する。存在する場合は本文をterminalへ出さず、ZIPへまとめてGoogle Driveの同じpreservation areaへcopyし、local/Drive SHA-256一致を確認する。
 
-```powershell
-& $tsx -e "import { validateCompletedSnapshot } from './processor/snapshot.ts'; await validateCompletedSnapshot(process.argv[1]); console.log('LOCAL_SNAPSHOT_VALID')" $sourceSnapshot
-$sourceBackupSnapshot = Join-Path $BACKUP_ROOT (Join-Path "snapshots" $rawResult.snapshotId)
-& $tsx -e "import { validateCompletedSnapshot } from './processor/snapshot.ts'; await validateCompletedSnapshot(process.argv[1]); console.log('DRIVE_SNAPSHOT_VALID')" $sourceBackupSnapshot
-```
+local legacy stateが存在しないこと自体はBLOCKERではない。
 
-## 10. Local + Cloud evidence merge
-
-```powershell
-$cloudEvidence = Join-Path $evidenceRoot "o12e-firestore-evidence.json"
-$mergedEvidence = Join-Path $evidenceRoot "o12e-migration-evidence.json"
-& $tsx processor/runLocalMigrationEvidence.ts --data-dir $DATA_DIR --evidence-root $evidenceRoot --output $mergedEvidence --cloud-evidence $cloudEvidence
-if ($LASTEXITCODE -ne 0) { throw "Migration evidence merge failed" }
-```
-
-## 11. Preserve evidence bundle to Google Drive
-
-Cloud archive + local legacy archive + merged evidenceを1つのprivate ZIPへまとめる。
-
-```powershell
-$stamp = Get-Date -Format "yyyyMMddTHHmmss"
-$finalEvidenceZip = Join-Path $MIGRATION_OUTPUT "o12e-final-evidence-$stamp.zip"
-Compress-Archive -Path (Join-Path $evidenceRoot "*") -DestinationPath $finalEvidenceZip
-$finalEvidenceSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $finalEvidenceZip).Hash.ToLowerInvariant()
-
-$driveArchiveDir = Join-Path $BACKUP_ROOT "migration-archives"
-New-Item -ItemType Directory -Force -Path $driveArchiveDir | Out-Null
-$driveEvidenceZip = Join-Path $driveArchiveDir (Split-Path $finalEvidenceZip -Leaf)
-Copy-Item -LiteralPath $finalEvidenceZip -Destination $driveEvidenceZip
-$driveEvidenceSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $driveEvidenceZip).Hash.ToLowerInvariant()
-if ($finalEvidenceSha -ne $driveEvidenceSha) { throw "Drive migration evidence ZIP SHA mismatch" }
-```
-
-ZIP本文をterminalへ表示しない。
-
-## 12. Migration snapshot
-
-```powershell
-$migrationId = "mig-$stamp"
-$migrationJson = & $tsx processor/runMigration.ts --source-snapshot $sourceSnapshot --processed-data-root $PROCESSED_ROOT --evidence $mergedEvidence --backup-root $BACKUP_ROOT --migration-id $migrationId
-$migrationExit = $LASTEXITCODE
-$migrationResult = ($migrationJson -join "`n") | ConvertFrom-Json
-$migrationSnapshot = Join-Path $PROCESSED_ROOT (Join-Path "snapshots" $migrationResult.snapshotId)
-$migrationBackupSnapshot = Join-Path $BACKUP_ROOT (Join-Path "snapshots" $migrationResult.snapshotId)
-```
-
-exit `3` はmanifest `blocked`を意味する。snapshot/evidenceを削除せず、unresolvedを返す。
-
-local/Drive migration snapshot validation:
-
-```powershell
-& $tsx -e "import { validateCompletedSnapshot } from './processor/snapshot.ts'; await validateCompletedSnapshot(process.argv[1]); console.log('MIGRATION_LOCAL_VALID')" $migrationSnapshot
-& $tsx -e "import { validateCompletedSnapshot } from './processor/snapshot.ts'; await validateCompletedSnapshot(process.argv[1]); console.log('MIGRATION_DRIVE_VALID')" $migrationBackupSnapshot
-```
-
-## 13. Migration result inspection
-
-`migration-manifest.json`はhealth valueを含まないmigration evidenceなので、status/parity/countだけ読んでよい。
-
-確認:
-
-- `unresolved.length`
-- Firestore `sleep_records.parity`
-- Firestore `health_metric_records.parity`
-- archive 4 categoryのpresence/sourceCount/archiveArtifact有無
-- local health-store / processed-files presence
-
-archive本文は読まない・表示しない。
-
-## 14. O-12e PASS判定
+## 10. O-12e PASS判定
 
 **PASS**:
 
-- synthetic tests PASS
-- build PASS
-- real raw snapshot local/Drive validation PASS
-- failedFileCount = 0
-- sleepRecordCount > 0
-- final evidence ZIP local/Drive SHA一致
-- migration snapshot local/Drive validation PASS
-- migration `unresolved=[]`
-- `sleep_records.parity=matched` またはFirestore側0件/local側0件
-- `health_metric_records.parity=matched` またはFirestore側0件/local側0件
-- present archive sourceすべてartifactあり
+- Firestore six evidence entriesがすべて存在
+- present collectionのJSONL artifactがすべて存在
+- present artifactのcount / byteLength / SHA-256が一致
+- original Firestore ZIPをN100 localで保持
+- original Firestore ZIPをGoogle Driveへcopy
+- local / Drive ZIP SHA-256一致
+- local legacy state presence / absence確認済み
+- present local legacy stateはprivate backup済み
 - final git status CLEAN
-
-**PASS_WITH_WARNINGS**:
-
-- `unresolved=[]`
-- rebuild parity matched
-- warnings/rejected rowsがあるが重要データ欠落を示さない
 
 **BLOCKED**:
 
-- evidence bundleなし
-- multiple-user evidence bundleが生成されていない
-- parity mismatch / not compared
-- archive artifact不足
-- unreadable local legacy state
-- Drive backup SHA不一致
+- evidence ZIPなし
+- multiple-userのためCloud collectorがbundleを生成できていない
+- required collection evidence欠落
+- archive artifact欠落
+- count / byteLength / SHA mismatch
+- Google Drive copy不可またはSHA mismatch
 
 **FAIL**:
 
-- compile/application/assertion failure
-- snapshot validation failure
+- preservation script / PowerShell処理自体のapplication error
 
-## 15. 返却形式
+semantic parity mismatchはO-12eの判定項目ではない。
+
+## 11. 返却形式
 
 ```text
 依頼ID: CX-O12E-001
-結果: PASS / PASS_WITH_WARNINGS / BLOCKED / FAIL
+結果: PASS / BLOCKED / FAIL
 branch: master
 master SHA:
-synthetic migration tests: PASS / FAIL
-build: PASS / FAIL
 cloud evidence ZIP sha256:
-raw input files:
-raw processed files:
-raw failed files:
-sleep records:
-health metrics:
-raw local snapshot: PASS / FAIL
-raw Drive snapshot: PASS / FAIL
-local health-store: PRESENT / ABSENT
-local processed-files: PRESENT / ABSENT
-Firestore sleep_records count:
-Firestore sleep_records parity: MATCHED / DIFFERENT / NOT_COMPARED
-Firestore health_metric_records count:
-Firestore health_metric_records parity: MATCHED / DIFFERENT / NOT_COMPARED
-Firestore processed_drive_files archive: PASS / ABSENT / FAIL
-Firestore drive_sync_runs archive: PASS / ABSENT / FAIL
-Firestore ingest_batches archive: PASS / ABSENT / FAIL
-Firestore metric_audit_summaries archive: PASS / ABSENT / FAIL
-final evidence ZIP Drive sha: PASS / FAIL
-migration status: completed / completed_with_warnings / blocked
-migration unresolved count:
-migration local snapshot: PASS / FAIL
-migration Drive snapshot: PASS / FAIL
+sleep_records count:
+sleep_records archive: PASS / ABSENT / FAIL
+health_metric_records count:
+health_metric_records archive: PASS / ABSENT / FAIL
+processed_drive_files count:
+processed_drive_files archive: PASS / ABSENT / FAIL
+drive_sync_runs count:
+drive_sync_runs archive: PASS / ABSENT / FAIL
+ingest_batches count:
+ingest_batches archive: PASS / ABSENT / FAIL
+metric_audit_summaries count:
+metric_audit_summaries archive: PASS / ABSENT / FAIL
+Firestore ZIP Drive copy: PASS / FAIL
+Firestore ZIP Drive sha: PASS / FAIL
+local health-store: PRESENT_BACKED_UP / ABSENT / FAIL
+local processed-files: PRESENT_BACKED_UP / ABSENT / FAIL
 final git status: CLEAN / DIRTY
-変更: local processed-data + Google Drive backup + ignored migration-input/outputのみ
+変更: private preservation files + Google Drive backupのみ
 application error:
-environment exception:
 ```
 
 health values、archive本文、user ID、tokenは返却しない。
+
+## 12. Firestore削除について
+
+このrunbookがPASSしてもFirestoreは削除しない。
+
+PASSは「Firestoreの元データを外部保存できた」ことを意味するだけである。
+
+Firestore削除はO-12f/g/h/i完了後、O-12j final auditで判断する。
