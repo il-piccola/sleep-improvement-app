@@ -1,16 +1,17 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e ACTIVE（E1 tooling実装済み・Cloud evidence取得待ち）**  
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e ACTIVE（Firestore preservation scope確定・backup実行待ち）**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
 Migration Source Map: [`o12-migration-source-map.md`](./o12-migration-source-map.md)  
 O-12c最終結果: [`o12c-final-validation-result-cx-o12c-012.md`](./o12c-final-validation-result-cx-o12c-012.md)  
 O-12d最終結果: [`o12d-final-validation-result-cx-o12d-001.md`](./o12d-final-validation-result-cx-o12d-001.md)  
+O-12e scope決定: [`o12e-preservation-scope-decision.md`](./o12e-preservation-scope-decision.md)  
 O-12e計画: [`o12e-existing-data-migration.md`](./o12e-existing-data-migration.md)  
-O-12e Cloud evidence: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
-O-12e N100 final: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
-最終更新日: **2026-08-24**
+O-12e Firestore backup: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
+O-12e N100 preservation: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
+最終更新日: **2026-08-26**
 
 ## 1. 運用原則
 
@@ -19,9 +20,10 @@ O-12e N100 final: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-mig
 - 既知environment issueだけを理由に安全な後続確認を小分けにしない。
 - 一度PASSした項目を理由なく再確認しない。
 - Exit Gateは `O-12a → b → c → d → e → f → g → h → i → j` の順序を守る。
-- O-12e完了前にCloud dataを削除しない。
+- **O-12eはデータ保全gate、O-12hはCloud/local parity・recovery gate、O-12jは削除gateとして分離する。**
+- O-12e完了後もFirestoreを直ちに削除しない。
 - O-12h完了前にCloud operationを停止しない。
-- O-12i local-only確認前にBilling disable / project shutdownしない。
+- O-12i local-only確認前にFirestore削除 / Billing disable / project shutdownを行わない。
 - raw health data、secret、token、OAuth credentialをrepositoryや作業ログへ記録しない。
 - implementationへN100固有drive letter / mount pathをhardcodeしない。
 
@@ -33,7 +35,7 @@ O-12e N100 final: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-mig
 | O-12b | Processed Data Contract | **COMPLETE — v1.0.0** |
 | O-12c | Processor独立化 | **COMPLETE** |
 | O-12d | Processor堅牢化 | **COMPLETE** |
-| O-12e | 既存データ移行 | **ACTIVE — E1 tooling実装済み / Cloud evidence待ち** |
+| O-12e | 既存データ保全 | **ACTIVE — preservation scope確定 / Firestore backup待ち** |
 | O-12f | Sleep Compass独立化 | **NOT STARTED** |
 | O-12g | Local Web + Tailscale | **NOT STARTED** |
 | O-12h | 並行検証・復旧試験 | **NOT STARTED** |
@@ -123,98 +125,108 @@ O-12e N100 final: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-mig
 
 # O-12e — ACTIVE
 
-## E1 Migration tooling — 実装済み
+## 3. 2026-08-26 scope整理
 
-追加:
+O-12eの主目的を **Cloud/Firestoreデータのサルベージと外部保全** に限定した。
 
-- `processor/migration.ts`
-  - migration evidence validation
-  - rebuild semantic parity
-  - archive artifact byteLength/SHA-256 verification
-  - required evidence category check
-  - `migration-manifest.json`
-  - migration snapshot publication
-- `processor/localMigrationEvidence.ts`
-  - local legacy state presence/absence
-  - local private archive
-  - `health-store` semantic hash
-  - Cloud/local evidence merge
-- `processor/runLocalMigrationEvidence.ts`
-- `processor/runMigration.ts`
-- `scripts/o12e-firestore-evidence.py`
-  - six Firestore collection groups read-only scan
-  - rebuild collectionはcount + semantic SHA-256
-  - archive collectionはprivate JSONL
-  - document本文/health value/user IDをterminalへ表示しない
-  - Firestore write/delete = 0
-- `tests/processor-migration.test.ts`
-- `tests/processor-local-migration-evidence.test.ts`
-- `migration-input/`, `migration-output/` をGit ignore
+旧案でO-12eへ含めていた次はExit Gateから外した。
 
-## O-12e確定分類
+- Firestore `sleep_records` とlocal canonicalのsemantic parity
+- Firestore `health_metric_records` とlocal canonicalのsemantic parity
+- real raw rebuildをO-12e完了条件にすること
+- migration snapshotをO-12e完了条件にすること
+- clean-room reconstruction test
 
-- Health Auto Export JSON: **Rebuild**
-- local health-store: **Rebuild if reproducible / otherwise block**
-- local processed-files: **Archive**
-- Firestore sleep_records: **Rebuild + semantic parity**
-- Firestore health_metric_records: **Rebuild + core semantic parity**
-- Firestore processed_drive_files: **Archive**
-- Firestore drive_sync_runs: **Archive**
-- Firestore ingest_batches: **Archive**
-- Firestore metric_audit_summaries: **Archive**
+理由:
 
-Cloud旧実装とcanonicalで意図的に変えたmain-sleep分類はhealth metric rebuild hashから除外し、O-12h presentation parityへ分離する。
+- データ保全は完全なprivate file backupで達成できる
+- 新Processor / Sleep Compassの正当性確認は別問題
+- Cloud/local parity・new data・dedupe・restart・clean-room recoveryはO-12hでまとめて確認する方が責務が明確
 
-## 次作業
+## 4. O-12e Firestore確定handling
+
+Firestore既知6 categoryをすべて **Archive** する。
+
+- `sleep_records`
+- `health_metric_records`
+- `processed_drive_files`
+- `drive_sync_runs`
+- `ingest_batches`
+- `metric_audit_summaries`
+
+`scripts/o12e-firestore-evidence.py` は6 categoryすべてをprivate JSONLへ保存するよう更新済み。
+
+各categoryのevidence:
+
+- document count
+- presence
+- archive relative path
+- byteLength
+- SHA-256
+
+Firestore write/update/deleteは0。
+
+## 5. Local / Drive preservation
+
+Cloud Shellで作成したoriginal ZIPを:
+
+1. N100 localで保持
+2. Google Driveのraw watch root外へcopy
+3. local / Drive SHA-256一致確認
+
+する。
+
+local `health-store.json` / `processed-files.json`はpresence / absenceを確認し、presentならprivate archiveする。
+
+## 6. 旧migration toolingの扱い
+
+O-12e準備中に実装したsemantic parity / migration manifest toolingは削除しないが、**現行O-12e Exit Gateでは使用しない**。
+
+将来O-12hのcomparison/recovery補助として利用可能だが、O-12eをblockする条件にはしない。
+
+## 7. 次作業
 
 ### User / Cloud Shell
 
-[`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md) を **1回だけ** 実行し、private ZIP bundleをN100へdownloadする。
+[`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md) を1回実行し、private ZIP bundleをN100へdownloadする。
 
-Cloud ShellはFirestore read-only。Cloud resource変更なし。
+### N100
 
-### Codex
+[`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md) に従い、application testではなくbackup integrityだけを確認する。
 
-Cloud bundleを `migration-input/` へ置いた後、**`CX-O12E-001` 1回だけ**。
-
-[`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md) に従い:
-
-- synthetic tests/build
-- real raw rebuild
-- local/Drive completed snapshot
-- local evidence
-- Cloud/local evidence merge
-- private evidence ZIP Drive backup + SHA
-- migration snapshot
-- Firestore rebuild parity
-- archive completeness
-- final O-12e gate
-
-まで一括実行する。
+- six JSONL archive integrity
+- count / byteLength / SHA
+- original ZIP local preservation
+- Google Drive copy + SHA一致
+- local legacy state presence/absence + present時archive
 
 ### ChatGPT
 
-`CX-O12E-001`をreviewする。PASS系ならO-12eをCOMPLETEにし、O-12fへ進む。
+結果をreviewし、backup integrityが揃えばO-12eをCOMPLETEにする。semantic parityの追加確認はO-12eでは要求しない。
 
 # O-12e Exit Gate
 
-- [ ] real rawからcanonical snapshot生成
-- [ ] local completed snapshot validation
-- [ ] Google Drive completed snapshot validation
-- [ ] local legacy state presence/absence確定
-- [ ] Firestore six category evidence取得
-- [ ] sleep_records rebuild parity
-- [ ] health_metric_records core rebuild parity
-- [ ] present archive sourceのartifact保存
-- [ ] final evidence ZIPをGoogle Driveへ保存しSHA一致
-- [ ] migration snapshot local/Drive validation
-- [ ] migration manifest `unresolved=[]`
+- [ ] Firestore six category read-only取得
+- [ ] six category document count記録
+- [ ] present categoryすべてprivate JSONL archive
+- [ ] archive artifact byteLength / SHA-256一致
+- [ ] original preservation ZIPをN100 localで保持
+- [ ] original preservation ZIPをGoogle Driveへcopy
+- [ ] local / Drive ZIP SHA-256一致
+- [ ] local legacy state presence / absence確定
+- [ ] present local legacy state private archive
+- [ ] Firestore write/update/delete = 0
+- [ ] Cloud runtime変更 = 0
 - [ ] final worktree CLEAN
 
-# 後続安全順序
+# Firestore削除ゲート
+
+O-12e COMPLETE後もFirestoreを削除しない。
 
 - O-12f: Sleep CompassをProcessed Data-backed local APIへ移行
-- O-12g: same-origin、`127.0.0.1`、Tailscale Serve、Funnel不使用
-- O-12h: Cloud/local parity、restart/recovery。完了前にCloud operation停止禁止
-- O-12i: Cloud automatic processingを可逆に停止
-- O-12j: final resource/Billing audit、`maya`用途再確認。Billing disable/project shutdownは安全確認と明示承認後のみ
+- O-12g: same-origin、`127.0.0.1`、Tailscale Serve
+- O-12h: Cloud/local parity、新データ、dedupe、restart、clean-room recovery
+- O-12i: Cloud automatic processingを可逆停止しlocal-only確認
+- O-12j: final audit後にFirestore/Cloud resource削除を判断
+
+削除直前にFirestore native backup等の追加ロールバック保険を使う場合は、その時点で必要性と料金を確認する。
