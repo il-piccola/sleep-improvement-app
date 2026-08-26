@@ -1,12 +1,14 @@
-# O-12e N100 final preservation — CX-O12E-001
+# N100 final preservation integrity — O-12i
 
-Status: **READY — Cloud evidence bundle download後に1回だけ実行**  
+Status: **READY — DO NOT RUN NOW / execute after O-12i Cloud write freeze**  
+Prepared in: **O-12e**  
+Execution phase: **O-12i**  
 Updated: **2026-08-26**  
 Decision: [`o12e-preservation-scope-decision.md`](./o12e-preservation-scope-decision.md)
 
 ## 1. 目的
 
-O-12eのN100側作業を **バックアップ完全性確認と二重保存** に限定する。
+O-12i cutoverで取得したFirestore final backupについて、N100側で **バックアップ完全性確認と二重保存** を行う。
 
 このtask内で:
 
@@ -19,13 +21,29 @@ O-12eのN100側作業を **バックアップ完全性確認と二重保存** �
 7. local / Drive ZIP SHA-256一致確認
 8. local legacy state presence / absence確認
 9. present local legacy stateをprivate archiveしてDriveへcopy
-10. O-12e Exit Gate判定
+10. O-12i final-preservation gate判定
 
 をまとめて行う。
 
 **npm test / build / real raw rebuild / semantic parity / migration snapshotは実施しない。**
 
-## 2. 安全境界
+## 2. 実行タイミング
+
+**今は実行しない。**
+
+必須precondition:
+
+- O-12f COMPLETE
+- O-12g COMPLETE
+- O-12h COMPLETE
+- O-12iでCloud automatic ingest/syncを可逆停止済み
+- manual sync / ingestを行わないmaintenance window中
+- in-flight Cloud writeがないことを確認済み
+- このwrite freeze後にFirestore collectorを実行し、最新ZIPをN100へdownload済み
+
+backup後にCloud writeを再開した場合、この結果はfinal preservationとして無効になる。その場合は次回cutoverでcollectorからやり直す。
+
+## 3. 安全境界
 
 許可:
 
@@ -37,14 +55,16 @@ O-12eのN100側作業を **バックアップ完全性確認と二重保存** �
 禁止:
 
 - raw Health Auto Export fileの変更・削除
-- Firestore / Cloud Run / Scheduler / Billing変更
+- Firestore write/update/delete
 - Git code/docs編集
 - git reset / stash / rebase / force
 - health valueのterminal返却
 - archive JSONL本文のterminal返却
 - Secret/token/OAuth credential表示
 
-## 3. Precondition
+Cloud write freeze自体は本runbook開始前のO-12i operation-stop手順で実施する。
+
+## 4. Repository precondition
 
 repo rootで:
 
@@ -55,7 +75,7 @@ repo rootで:
 
 Cloud evidence ZIPがない場合はBLOCKED。Cloud再queryはこのtaskから行わない。
 
-## 4. Git sync
+## 5. Git sync
 
 repository codeは実行しないが、正式runbook/versionを揃えるためsyncだけ行う。
 
@@ -73,18 +93,20 @@ git status --short
 git rev-parse HEAD
 ```
 
-## 5. Cloud preservation ZIPを選ぶ
+## 6. Cloud preservation ZIPを選ぶ
 
 ```powershell
 $bundle = Get-ChildItem -LiteralPath "migration-input" -Filter "o12e-firestore-evidence*.zip" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
 
-if (-not $bundle) { throw "O-12e Firestore preservation ZIP not found" }
+if (-not $bundle) { throw "Firestore final preservation ZIP not found" }
 $cloudBundleSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundle.FullName).Hash.ToLowerInvariant()
 ```
 
-## 6. ZIP展開
+O-12i write freeze前に作成された古いbundleを誤採用しないこと。cutover中に取得した最新bundleだけを使う。
+
+## 7. ZIP展開
 
 既存directoryは削除しない。
 
@@ -100,7 +122,7 @@ if (-not (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
 $evidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
 ```
 
-## 7. six collection archive integrity
+## 8. six collection archive integrity
 
 必須collection:
 
@@ -171,7 +193,7 @@ foreach ($name in $required) {
 
 JSONL本文はterminalへ表示しない。
 
-## 8. Google Driveへoriginal Firestore ZIPをcopy
+## 9. Google Driveへoriginal Firestore ZIPをcopy
 
 現在のhost boundary候補:
 
@@ -195,9 +217,9 @@ if ($driveBundleSha -ne $cloudBundleSha) { throw "Firestore preservation ZIP SHA
 
 Cloud Shellからdownloadしたoriginal ZIPそのものをcopyする。再圧縮による差異を入れない。
 
-## 9. Local legacy state
+## 10. Local legacy state
 
-local stateは存在する場合だけprivate archiveする。
+local stateはcutover時点で存在する場合だけprivate archiveする。
 
 確認候補:
 
@@ -214,7 +236,7 @@ local stateは存在する場合だけprivate archiveする。
 
 local legacy stateが存在しないこと自体はBLOCKERではない。
 
-## 10. O-12e PASS判定
+## 11. O-12i final-preservation PASS判定
 
 **PASS**:
 
@@ -226,11 +248,13 @@ local legacy stateが存在しないこと自体はBLOCKERではない。
 - local / Drive ZIP SHA-256一致
 - local legacy state presence / absence確認済み
 - present local legacy stateはprivate backup済み
+- Cloud write freezeが維持されている
 - final git status CLEAN
 
 **BLOCKED**:
 
-- evidence ZIPなし
+- write freeze未完了
+- write freeze後のfinal evidence ZIPなし
 - multiple-userのためCloud collectorがbundleを生成できていない
 - required collection evidence欠落
 - archive artifact欠落
@@ -241,15 +265,16 @@ local legacy stateが存在しないこと自体はBLOCKERではない。
 
 - preservation script / PowerShell処理自体のapplication error
 
-semantic parity mismatchはO-12eの判定項目ではない。
+semantic parity mismatchはこの判定項目ではない。
 
-## 11. 返却形式
+## 12. 返却形式
 
 ```text
-依頼ID: CX-O12E-001
+依頼ID: CX-O12I-FINAL-BACKUP-001
 結果: PASS / BLOCKED / FAIL
 branch: master
 master SHA:
+Cloud write freeze: CONFIRMED / NOT_CONFIRMED
 cloud evidence ZIP sha256:
 sleep_records count:
 sleep_records archive: PASS / ABSENT / FAIL
@@ -274,10 +299,10 @@ application error:
 
 health values、archive本文、user ID、tokenは返却しない。
 
-## 12. Firestore削除について
+## 13. Firestore削除について
 
-このrunbookがPASSしてもFirestoreは削除しない。
+このrunbookがPASSしても、その場でFirestoreを削除しない。
 
-PASSは「Firestoreの元データを外部保存できた」ことを意味するだけである。
+write freezeを維持したままO-12i local-only operationを確認し、そのPASS後にO-12j final auditへ進む。
 
-Firestore削除はO-12f/g/h/i完了後、O-12j final auditで判断する。
+O-12jではこのfinal backupが存在し、かつbackup後にCloud writeを再開していないことを削除前提として確認する。
