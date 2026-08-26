@@ -1,6 +1,6 @@
 # O-12 Local-first Cloud Exit Plan
 
-Status: **Approved baseline — O-12e preservation scope clarified 2026-08-26**  
+Status: **Approved baseline — preservation timing clarified 2026-08-26**  
 Scope: infrastructure and data-platform migration  
 Primary goal: **remove Sleep Compass runtime dependencies on chargeable Google Cloud services while preserving all existing data assets**
 
@@ -138,11 +138,13 @@ The general migration taxonomy remains:
 2. **Migrate**: required in the new local/processed-data model.
 3. **Archive**: retained as historical or source-of-record evidence.
 
-However, **O-12e is the data-preservation gate, not the Cloud/local semantic-parity gate**.
+However, **O-12e is the preservation-readiness gate, not the production-backup execution gate and not the Cloud/local semantic-parity gate**.
 
-For O-12e, the known Firestore datasets are preserved as private file archives outside the Google Cloud runtime boundary. A preservation manifest/evidence record must capture collection counts, archive paths, byte lengths, and SHA-256 hashes without printing personal health values to terminal logs.
+For O-12e, the known Firestore datasets, archive format, collection-count evidence, byte-length/SHA-256 verification, N100 storage, Google Drive copy, and integrity-check procedure must be fully defined. O-12e does not require an early production archive while Cloud ingestion is still active.
 
-The Firestore preservation bundle must be kept on the N100 host and copied to Google Drive outside the raw watch root, with SHA-256 equality verified after the copy.
+An early Firestore archive can become stale immediately after the next Cloud ingest/sync run. Therefore the final production preservation bundle is created in O-12i only after O-12h has passed, Cloud write paths have been placed into a reversible maintenance freeze, and in-flight writes are confirmed absent.
+
+The final Firestore preservation bundle must be kept on the N100 host and copied to Google Drive outside the raw watch root, with SHA-256 equality verified after the copy.
 
 O-12e does not require a semantic comparison between Firestore records and newly generated Processed Data. It also does not require a clean-room reconstruction test. Those functional and behavioral checks belong to O-12h.
 
@@ -217,7 +219,7 @@ At O-12 completion, normal Sleep Compass operation must not depend on:
 
 Google Drive remains permitted as a data store and backup destination, but access from the local runtime is through the OS-visible filesystem layer rather than the Google Drive API.
 
-Cloud removal is staged. Data preservation must complete before destructive deletion is considered, but preservation alone does not authorize deletion. Cloud/local behavior and recovery must be validated in O-12h, Cloud automatic processing must be stopped and local-only operation verified in O-12i, and destructive Firestore/Cloud deletion is reserved for O-12j.
+Cloud removal is staged. Preservation procedure readiness must complete before local-runtime migration proceeds. Cloud/local behavior and recovery must be validated in O-12h. In O-12i, Cloud write paths are frozen, in-flight writes are cleared, the final Firestore preservation bundle is captured and verified, and local-only operation is confirmed. Destructive Firestore/Cloud deletion is reserved for O-12j.
 
 ## 10. Execution map
 
@@ -231,14 +233,14 @@ For readability, O-12 is managed as six major stages. The O-12a through O-12j wo
 | **Stage 2 — Contract** | **O-12b** | Processed Data Contract | Schemas, versioning, provenance, legacy-reader policy, snapshot rules, compatibility policy, and migration-manifest format are defined and testable. |
 | **Stage 3 — Processor** | **O-12c** | Processor independence | Data Processor core can run without Sleep Compass Web/API, Firebase, Cloud Run, Firestore, Tailscale, or Google Drive API. |
 | **Stage 3 — Processor** | **O-12d** | Processor hardening | Safe snapshots, corruption handling, OS/path independence, efficient fingerprinting, watcher/rescan, and Google Drive processed-data backup are working. |
-| **Stage 4 — Preservation** | **O-12e** | Existing-data preservation | Important Firestore/local data has been salvaged to private files, counts/hashes are recorded, and verified copies exist outside the Google Cloud runtime boundary. No semantic parity or destructive deletion is required here. |
+| **Stage 4 — Preservation readiness** | **O-12e** | Existing-data preservation readiness | Every known Firestore/local source has a defined private preservation method; all six Firestore categories are covered; count/byteLength/SHA verification and N100/Drive copy procedures are ready; production final backup is intentionally deferred until write freeze. |
 | **Stage 5 — Sleep Compass local runtime** | **O-12f** | Sleep Compass independence | Sleep Compass consumes Processed Data instead of Cloud persistence and required local API parity is available. |
 | **Stage 5 — Sleep Compass local runtime** | **O-12g** | Local Web + Tailscale | React/API are same-origin, server is localhost-only, local Firebase Auth dependency is removed, and Tailscale Serve access works. |
-| **Stage 5 — Sleep Compass local runtime** | **O-12h** | Parallel validation and recovery test | Cloud/local parity, new-data processing, deduplication, restart behavior, intentional-difference review, and clean-room recovery are verified. |
-| **Stage 6 — Cloud exit** | **O-12i** | Cloud operation stop | Cloud automatic processing is stopped and new data continues to process correctly using the local path alone. |
-| **Stage 6 — Cloud exit** | **O-12j** | Complete Cloud exit | Final resource/Billing audit is complete; preserved data is verified; Firestore/Cloud resources are removed when safe; Billing is disabled; and the project is shut down only if confirmed dedicated. |
+| **Stage 5 — Sleep Compass local runtime** | **O-12h** | Parallel validation and recovery test | Cloud/local parity, new-data processing, deduplication, restart behavior, intentional-difference review, and clean-room recovery are verified while Cloud remains available. |
+| **Stage 6 — Cloud exit** | **O-12i** | Cloud write freeze, final preservation, local-only verification | Cloud ingest/sync writes are reversibly frozen; in-flight writes are absent; the latest Firestore/local state is preserved to N100 + Google Drive with integrity verification; write freeze is maintained; local-only processing is verified. |
+| **Stage 6 — Cloud exit** | **O-12j** | Complete Cloud exit | Final resource/Billing audit is complete; O-12i final preservation remains valid; Firestore/Cloud resources are removed when safe; Billing is disabled; and the project is shut down only if confirmed dedicated. |
 
-The stage order and gates are mandatory. O-12e must complete before destructive Cloud data removal is considered. O-12h must pass before Cloud operation is stopped. O-12i must verify local-only operation before Firestore/Cloud deletion, Billing disablement, or project shutdown in O-12j.
+The stage order and gates are mandatory. O-12e must complete before O-12f. O-12h must pass before Cloud write freeze. O-12i final preservation and local-only verification must pass before Firestore/Cloud deletion, Billing disablement, or project shutdown in O-12j.
 
 Detailed progress is maintained separately in [`docs/o12-progress.md`](./o12-progress.md). This baseline describes what O-12 means; the progress document records where implementation currently stands.
 
@@ -287,11 +289,11 @@ This stage includes:
 - watcher/rescan operation
 - processed-data Google Drive snapshot backup
 
-### Stage 4 — Preservation
+### Stage 4 — Preservation readiness
 
-Preserve all important existing Cloud/local data before any destructive cleanup.
+Prepare complete preservation coverage before local-runtime migration, but do not take an early production Firestore backup that will become stale while Cloud ingestion is still running.
 
-For Firestore:
+For Firestore, establish and review the procedure to:
 
 - read the known Sleep Compass collection groups without writes/deletes,
 - archive every present collection to private JSONL files,
@@ -300,9 +302,11 @@ For Firestore:
 - copy the same bundle to Google Drive outside the raw watch root,
 - verify the copied bundle hash matches.
 
-For local legacy state, record presence/absence and privately archive present state.
+For local legacy state, establish presence/absence and private-archive handling.
 
 Do not require Cloud/local semantic parity, application tests, or clean-room reconstruction to close this stage. Those checks belong to Stage 5 / O-12h.
+
+The production final backup is executed later in O-12i, after Cloud writes are frozen.
 
 ### Stage 5 — Sleep Compass local runtime
 
@@ -321,17 +325,23 @@ Complete:
 
 ### Stage 6 — Cloud exit
 
-Only after local processing, preservation, Web operation, parity, and recovery tests pass:
+Only after local processing, preservation readiness, Web operation, parity, and recovery tests pass:
 
-1. stop Cloud automatic processing first,
-2. verify new data is processed locally without Cloud assistance,
-3. perform final resource and Billing audit,
-4. re-verify preserved data and, if desired, evaluate an additional native Firestore backup as a deletion-time rollback option,
-5. delete Sleep Compass Firestore/Cloud resources only when no runtime still depends on them,
-6. disable Billing for the Sleep Compass project when safe,
-7. shut down the Google Cloud project only when confirmed dedicated and safe.
+1. enter a reversible Cloud write freeze by stopping automatic ingest/sync and avoiding manual write triggers,
+2. confirm there are no in-flight Cloud writes,
+3. capture the final Firestore/local preservation bundle,
+4. verify collection counts, archive byte lengths/SHA-256, N100 retention, and Google Drive copy SHA equality,
+5. keep Cloud write freeze in place,
+6. verify new data is processed locally without Cloud assistance,
+7. perform final resource and Billing audit,
+8. optionally evaluate an additional native Firestore backup as a deletion-time rollback option,
+9. delete Sleep Compass Firestore/Cloud resources only when no runtime still depends on them and the final preservation bundle remains current,
+10. disable Billing for the Sleep Compass project when safe,
+11. shut down the Google Cloud project only when confirmed dedicated and safe.
 
-The principle is **preserve → migrate runtime → validate/recover → stop → verify local-only → delete → disable billing → shut down**.
+If Cloud writes are resumed after the final preservation bundle is captured, that bundle is no longer considered deletion-ready and must be replaced at the next cutover.
+
+The principle is **prepare preservation → migrate runtime → validate/recover → freeze writes → capture final backup → verify local-only → delete → disable billing → shut down**.
 
 ## 11. Completion criteria
 
@@ -341,7 +351,7 @@ O-12 is complete only when all of the following are true:
 2. Sleep Compass can operate from Processed Data without Cloud persistence.
 3. Processed Data is documented and usable by other applications.
 4. Important Processed Data is backed up to Google Drive as versioned completed snapshots.
-5. Existing raw, local, processed, and Firestore data has been preserved without unexplained loss, with private Firestore archives retained outside the Cloud runtime boundary.
+5. Existing raw/local sources are retained as required, and the latest Firestore/local state is preserved after Cloud write freeze to private archives on N100 + Google Drive with verified integrity.
 6. Drive letters and absolute host paths are not part of persistent data identity.
 7. The runtime design is portable across Windows, macOS, and Linux with OS-specific changes kept at the filesystem/service boundary.
 8. Reprocessing the same source does not create unintended duplicates.
