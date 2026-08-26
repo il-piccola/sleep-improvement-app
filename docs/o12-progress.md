@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e ACTIVE（Firestore preservation scope確定・backup実行待ち）**  
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立・final backupはO-12iへ遅延） / O-12f NEXT**  
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -9,8 +9,8 @@ O-12c最終結果: [`o12c-final-validation-result-cx-o12c-012.md`](./o12c-final-
 O-12d最終結果: [`o12d-final-validation-result-cx-o12d-001.md`](./o12d-final-validation-result-cx-o12d-001.md)  
 O-12e scope決定: [`o12e-preservation-scope-decision.md`](./o12e-preservation-scope-decision.md)  
 O-12e計画: [`o12e-existing-data-migration.md`](./o12e-existing-data-migration.md)  
-O-12e Firestore backup: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
-O-12e N100 preservation: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
+O-12e Firestore final-backup手順: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
+O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
 最終更新日: **2026-08-26**
 
 ## 1. 運用原則
@@ -20,10 +20,12 @@ O-12e N100 preservation: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-fi
 - 既知environment issueだけを理由に安全な後続確認を小分けにしない。
 - 一度PASSした項目を理由なく再確認しない。
 - Exit Gateは `O-12a → b → c → d → e → f → g → h → i → j` の順序を守る。
-- **O-12eはデータ保全gate、O-12hはCloud/local parity・recovery gate、O-12jは削除gateとして分離する。**
-- O-12e完了後もFirestoreを直ちに削除しない。
+- **O-12eはpreservation readiness、O-12hはCloud/local parity・recovery、O-12iはwrite freeze + final backup + local-only、O-12jは削除gateとして分離する。**
+- 現行Cloud取り込みが継続している間はFirestore final backupを取得しない。取得しても後続ingestで古くなるため。
+- final Firestore backupはO-12h完了後、O-12iでCloud writeを凍結しin-flight処理がないことを確認した直後に実行する。
+- final backup後にCloud writeを再開した場合、そのbackupはfinal扱いを失い、次回cutover時に再取得する。
 - O-12h完了前にCloud operationを停止しない。
-- O-12i local-only確認前にFirestore削除 / Billing disable / project shutdownを行わない。
+- O-12i final backup + local-only確認前にFirestore削除 / Billing disable / project shutdownを行わない。
 - raw health data、secret、token、OAuth credentialをrepositoryや作業ログへ記録しない。
 - implementationへN100固有drive letter / mount pathをhardcodeしない。
 
@@ -35,11 +37,11 @@ O-12e N100 preservation: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-fi
 | O-12b | Processed Data Contract | **COMPLETE — v1.0.0** |
 | O-12c | Processor独立化 | **COMPLETE** |
 | O-12d | Processor堅牢化 | **COMPLETE** |
-| O-12e | 既存データ保全 | **ACTIVE — preservation scope確定 / Firestore backup待ち** |
-| O-12f | Sleep Compass独立化 | **NOT STARTED** |
+| O-12e | 既存データ保全準備 | **COMPLETE — procedure ready / final backup deferred to O-12i** |
+| O-12f | Sleep Compass独立化 | **NEXT** |
 | O-12g | Local Web + Tailscale | **NOT STARTED** |
 | O-12h | 並行検証・復旧試験 | **NOT STARTED** |
-| O-12i | Cloud運用停止 | **NOT STARTED** |
+| O-12i | Cloud運用停止 + final preservation | **NOT STARTED** |
 | O-12j | Cloud完全撤去 | **NOT STARTED** |
 
 # O-12a — COMPLETE
@@ -123,29 +125,30 @@ O-12e N100 preservation: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-fi
 
 **O-12d Exit Gate: COMPLETE**
 
-# O-12e — ACTIVE
+# O-12e — COMPLETE
 
 ## 3. 2026-08-26 scope整理
 
-O-12eの主目的を **Cloud/Firestoreデータのサルベージと外部保全** に限定した。
+O-12eは **Cloud/Firestoreデータ保全の手順確立gate** とする。
 
-旧案でO-12eへ含めていた次はExit Gateから外した。
+旧案からExit Gateを外したもの:
 
 - Firestore `sleep_records` とlocal canonicalのsemantic parity
 - Firestore `health_metric_records` とlocal canonicalのsemantic parity
-- real raw rebuildをO-12e完了条件にすること
-- migration snapshotをO-12e完了条件にすること
+- real raw rebuild
+- migration snapshot
 - clean-room reconstruction test
+- Cloud取り込み継続中の早期Firestore backup
 
 理由:
 
-- データ保全は完全なprivate file backupで達成できる
-- 新Processor / Sleep Compassの正当性確認は別問題
-- Cloud/local parity・new data・dedupe・restart・clean-room recoveryはO-12hでまとめて確認する方が責務が明確
+- parity/recoveryはO-12hの責務
+- 現行Cloud取り込み中に取得したbackupは、その後のingestで古くなる
+- final backupはwrite freeze直後に取るのが最も安全
 
-## 4. O-12e Firestore確定handling
+## 4. Firestore final preservation仕様 — 確立済み
 
-Firestore既知6 categoryをすべて **Archive** する。
+Firestore既知6 categoryをすべてprivate JSONL archive対象とする。
 
 - `sleep_records`
 - `health_metric_records`
@@ -154,7 +157,7 @@ Firestore既知6 categoryをすべて **Archive** する。
 - `ingest_batches`
 - `metric_audit_summaries`
 
-`scripts/o12e-firestore-evidence.py` は6 categoryすべてをprivate JSONLへ保存するよう更新済み。
+`scripts/o12e-firestore-evidence.py` は6 categoryすべてをread-onlyで収集しprivate JSONLへ保存できる。
 
 各categoryのevidence:
 
@@ -166,9 +169,9 @@ Firestore既知6 categoryをすべて **Archive** する。
 
 Firestore write/update/deleteは0。
 
-## 5. Local / Drive preservation
+## 5. Final preservation保存先 — 確立済み
 
-Cloud Shellで作成したoriginal ZIPを:
+最終cutover時にoriginal ZIPを:
 
 1. N100 localで保持
 2. Google Driveのraw watch root外へcopy
@@ -176,57 +179,55 @@ Cloud Shellで作成したoriginal ZIPを:
 
 する。
 
-local `health-store.json` / `processed-files.json`はpresence / absenceを確認し、presentならprivate archiveする。
+local `health-store.json` / `processed-files.json`はcutover時点でpresence / absenceを確認し、presentならprivate archiveする。
 
 ## 6. 旧migration toolingの扱い
 
-O-12e準備中に実装したsemantic parity / migration manifest toolingは削除しないが、**現行O-12e Exit Gateでは使用しない**。
+O-12e準備中に実装したsemantic parity / migration manifest toolingは削除しないが、**O-12e Exit Gateでは使用しない**。
 
-将来O-12hのcomparison/recovery補助として利用可能だが、O-12eをblockする条件にはしない。
+O-12hのcomparison/recovery補助として利用可能。
 
-## 7. 次作業
+## 7. O-12e Exit Gate — COMPLETE
 
-### User / Cloud Shell
+- [x] Firestore six categoryをcollector対象化
+- [x] six categoryのprivate JSONL archive仕様確定
+- [x] document count / byteLength / SHA-256 evidence形式確定
+- [x] N100 local保存手順確定
+- [x] Google Drive copy + SHA一致手順確定
+- [x] local legacy state presence / absence / archive手順確定
+- [x] Firestore write/update/delete = 0 の安全境界確定
+- [x] final backupをO-12i write freeze直後へ遅延する方針確定
 
-[`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md) を1回実行し、private ZIP bundleをN100へdownloadする。
+**O-12e Exit Gate: COMPLETE**
 
-### N100
+# 次作業 — O-12f
 
-[`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md) に従い、application testではなくbackup integrityだけを確認する。
+Sleep CompassをFirestore/Cloud persistenceではなく **Processed Data-backed local API** から動かせるようにする。
 
-- six JSONL archive integrity
-- count / byteLength / SHA
-- original ZIP local preservation
-- Google Drive copy + SHA一致
-- local legacy state presence/absence + present時archive
+O-12fではまだCloud operationを止めない。現行Cloud版を比較対象として維持する。
 
-### ChatGPT
+主対象:
 
-結果をreviewし、backup integrityが揃えばO-12eをCOMPLETEにする。semantic parityの追加確認はO-12eでは要求しない。
+- current Webが必要とするlocal API response shape
+- Processed Data snapshot reader
+- import/status/timeline/context等のlocal API parity
+- Cloud-specific persistence依存の除去
+- current Web behaviorを壊さないadapter boundary
 
-# O-12e Exit Gate
+# Final Firestore backup timing
 
-- [ ] Firestore six category read-only取得
-- [ ] six category document count記録
-- [ ] present categoryすべてprivate JSONL archive
-- [ ] archive artifact byteLength / SHA-256一致
-- [ ] original preservation ZIPをN100 localで保持
-- [ ] original preservation ZIPをGoogle Driveへcopy
-- [ ] local / Drive ZIP SHA-256一致
-- [ ] local legacy state presence / absence確定
-- [ ] present local legacy state private archive
-- [ ] Firestore write/update/delete = 0
-- [ ] Cloud runtime変更 = 0
-- [ ] final worktree CLEAN
+実行は **O-12i**。
 
-# Firestore削除ゲート
+順序:
 
-O-12e COMPLETE後もFirestoreを削除しない。
+1. O-12h PASS
+2. Cloud自動取り込みを可逆停止
+3. manual sync / ingestを止めたmaintenance windowへ入る
+4. in-flight writeなし確認
+5. Firestore six category final backup
+6. N100 + Google Drive integrity PASS
+7. write freeze維持
+8. local-only確認
+9. O-12jで削除判断
 
-- O-12f: Sleep CompassをProcessed Data-backed local APIへ移行
-- O-12g: same-origin、`127.0.0.1`、Tailscale Serve
-- O-12h: Cloud/local parity、新データ、dedupe、restart、clean-room recovery
-- O-12i: Cloud automatic processingを可逆停止しlocal-only確認
-- O-12j: final audit後にFirestore/Cloud resource削除を判断
-
-削除直前にFirestore native backup等の追加ロールバック保険を使う場合は、その時点で必要性と料金を確認する。
+この順序により、現行取り込みがbackup取得後に走ってやり直しになる問題を防ぐ。
