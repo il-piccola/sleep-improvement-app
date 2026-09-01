@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve } from 'node:path'
 export type HealthImportConfig = {
   watchDir: string
   watchEnabled: boolean
+  serverHost: '127.0.0.1'
   serverPort: number
   scanIntervalMs: number
   usePolling: boolean
@@ -17,6 +18,7 @@ export type HealthImportConfig = {
 export const defaultHealthImportConfig: HealthImportConfig = {
   watchDir: resolve(process.cwd(), 'health-auto-export', 'Sleep'),
   watchEnabled: true,
+  serverHost: '127.0.0.1',
   serverPort: 8787,
   scanIntervalMs: 300_000,
   usePolling: true,
@@ -78,6 +80,7 @@ export function loadHealthImportConfig(
       envKeys.watchEnabled,
       defaultHealthImportConfig.watchEnabled,
     ),
+    serverHost: defaultHealthImportConfig.serverHost,
     serverPort: getPositiveInteger(
       mergedEnv,
       envKeys.serverPort,

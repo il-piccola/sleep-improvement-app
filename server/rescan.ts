@@ -1,15 +1,23 @@
 import { loadHealthImportConfig } from './config.ts'
 import { createHealthExportWatcher } from './watchHealthExports.ts'
+import { publishLocalProcessedData } from './localProcessedData.ts'
 
 const config = loadHealthImportConfig()
-const watcher = createHealthExportWatcher(config)
+const watcher = createHealthExportWatcher(config, undefined, {
+  onProcessedDataReady: async () => {
+    await publishLocalProcessedData(config)
+  },
+})
 
 try {
   const status = await watcher.rescan()
+  const processedData = await publishLocalProcessedData(config)
 
   console.log('Standalone rescan completed')
   console.log(`Last scan: ${status.lastScanAt ?? 'unknown'}`)
   console.log(`Last file: ${status.lastProcessedFileName ?? 'none'}`)
+  console.log(`Processed snapshot: ${processedData.snapshotId}`)
+  console.log(`Processed records: ${processedData.sleepRecordCount}`)
 
   if (status.latestStats) {
     console.log(`Read files: ${status.latestStats.readFileCount}`)

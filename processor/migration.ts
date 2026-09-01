@@ -491,9 +491,9 @@ function sha256(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function asRecord(value: unknown): Record<string, any> {
+function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, any>
+    ? value as Record<string, unknown>
     : {}
 }
 

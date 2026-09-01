@@ -281,9 +281,9 @@ const screens: Array<{ id: AppScreen; label: string; shortLabel: string }> = [
 const SETTINGS_STORAGE_KEY = 'sleep-improvement.analysis-config'
 const LOCAL_IMPORT_SERVER_URL =
   import.meta.env.VITE_HEALTH_IMPORT_SERVER_URL ??
-  `${window.location.protocol}//${window.location.hostname}:8787`
+  ''
 const CLOUD_API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-const FIREBASE_AUTH = getFirebaseAuth()
+const FIREBASE_AUTH = CLOUD_API_BASE_URL ? getFirebaseAuth() : null
 const EMPTY_SLEEP_DATA: SleepDataFile = {
   records: [],
   warnings: [],
@@ -770,9 +770,11 @@ async function fetchLocalServerData(): Promise<{
   status: LocalImportStatus
 }> {
   try {
-    const [recordsResponse, statusResponse] = await Promise.all([
+    const [recordsResponse, statusResponse, sleepHealthContextResponse, driveStatusResponse] = await Promise.all([
       fetch(`${LOCAL_IMPORT_SERVER_URL}/api/health-records`),
       fetch(`${LOCAL_IMPORT_SERVER_URL}/api/import-status`),
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/sleep-health-context`),
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/drive-sync-status`),
     ])
 
     if (!recordsResponse.ok || !statusResponse.ok) {
@@ -785,10 +787,21 @@ async function fetchLocalServerData(): Promise<{
       warnings?: string[]
     }
     const statusPayload = (await statusResponse.json()) as Omit<LocalImportStatus, 'connected'>
+    const sleepHealthContext = sleepHealthContextResponse.ok
+      ? ((await sleepHealthContextResponse.json()) as SleepHealthContextPayload)
+      : null
+    const driveSyncStatus = driveStatusResponse.ok
+      ? ((await driveStatusResponse.json()) as DriveSyncStatusPayload)
+      : null
 
     return {
       generatedAt: recordsPayload.generatedAt,
+      driveSyncStatus,
       records: Array.isArray(recordsPayload.records) ? recordsPayload.records : [],
+      sleepHealthContext: {
+        days: Array.isArray(sleepHealthContext?.days) ? sleepHealthContext.days : [],
+        error: null,
+      },
       warnings: Array.isArray(recordsPayload.warnings) ? recordsPayload.warnings : [],
       status: {
         ...statusPayload,

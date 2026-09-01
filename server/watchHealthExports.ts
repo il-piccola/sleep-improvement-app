@@ -49,6 +49,10 @@ export type HealthExportImporter = (input: {
   filePath: string
 }) => Promise<HealthExportImportResult>
 
+export type HealthExportWatcherOptions = {
+  onProcessedDataReady?: () => Promise<void>
+}
+
 export type HealthExportWatcher = {
   status: ImportStatus
   start: () => Promise<void>
@@ -59,6 +63,7 @@ export type HealthExportWatcher = {
 export function createHealthExportWatcher(
   config: HealthImportConfig,
   importFile: HealthExportImporter = defaultImportHealthExportFile,
+  options: HealthExportWatcherOptions = {},
 ): HealthExportWatcher {
   const queue = new Set<string>()
   let watcher: FSWatcher | null = null
@@ -93,9 +98,9 @@ export function createHealthExportWatcher(
       status.lastError = error instanceof Error ? error.message : String(error)
     })
     scanTimer = setInterval(() => {
-      void scanDirectory()
+      void scanDirectory(true)
     }, config.scanIntervalMs)
-    await scanDirectory()
+    await scanDirectory(true)
   }
 
   async function stop() {
@@ -113,7 +118,7 @@ export function createHealthExportWatcher(
   }
 
   async function rescan() {
-    await scanDirectory()
+    await scanDirectory(false)
     return status
   }
 
@@ -123,10 +128,10 @@ export function createHealthExportWatcher(
     }
 
     queue.add(resolve(path))
-    void drainQueue()
+    void drainQueue(true)
   }
 
-  async function scanDirectory() {
+  async function scanDirectory(publishProcessedData: boolean) {
     status.lastScanAt = new Date().toISOString()
 
     try {
@@ -134,13 +139,13 @@ export function createHealthExportWatcher(
       for (const path of jsonFiles) {
         queue.add(path)
       }
-      await drainQueue()
+      await drainQueue(publishProcessedData)
     } catch (error) {
       status.lastError = error instanceof Error ? error.message : String(error)
     }
   }
 
-  async function drainQueue() {
+  async function drainQueue(publishProcessedData: boolean) {
     if (isProcessing) {
       return
     }
@@ -156,6 +161,17 @@ export function createHealthExportWatcher(
       }
 
       status.latestStats = runStats
+      if (
+        publishProcessedData &&
+        options.onProcessedDataReady &&
+        runStats.readFileCount > 0
+      ) {
+        try {
+          await options.onProcessedDataReady()
+        } catch (error) {
+          status.lastError = error instanceof Error ? error.message : String(error)
+        }
+      }
     } finally {
       isProcessing = false
     }
