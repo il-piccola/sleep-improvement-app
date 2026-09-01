@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立・final backupはO-12iへ遅延） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み）**
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立・final backupはO-12iへ遅延） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h ACTIVE（local validation PASS、Cloud comparison・recovery pending）**
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -40,7 +40,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 | O-12e | 既存データ保全準備 | **COMPLETE — procedure ready / final backup deferred to O-12i** |
 | O-12f | Sleep Compass独立化 | **COMPLETE — Processed Data-backed local API parity / runtime validation PASS_WITH_ENVIRONMENT_EXCEPTION** |
 | O-12g | Local Web + Tailscale | **COMPLETE — localhost・same-origin・Tailscale Serve・iPhone表示確認済み** |
-| O-12h | 並行検証・復旧試験 | **NEXT / NOT STARTED** |
+| O-12h | 並行検証・復旧試験 | **ACTIVE — local validation PASS / Cloud comparison・recovery pending** |
 | O-12i | Cloud運用停止 + final preservation | **NOT STARTED** |
 | O-12j | Cloud完全撤去 | **NOT STARTED** |
 
@@ -281,6 +281,25 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 - O-12gではCloud/Firebase/Drive/Tailscaleの既存データ・設定を変更していない
 
 **O-12g Exit Gate: COMPLETE**
+
+# O-12h — ACTIVE
+
+実施済み:
+
+- Processed Data-backed local runtime test: PASS
+- local rescan publication / snapshot validation / API reader integration: PASS
+- watcher update detection / Processed Data publication: PASS
+- Processor、snapshot、migration、既存Web回帰を含む`npm test`: PASS（既知のtsx起動環境例外には検証用shimを使用）
+- 実Health Auto Export 109 JSONからの初回Processed Data生成: 失敗0件
+
+未実施:
+
+- Cloud/localの実データ比較と意図的差分レビュー
+- Cloud稼働中の新規データ反映・重複排除の実運用比較
+- サーバー再起動後のsnapshot復旧確認
+- clean-room環境からの再構築確認
+
+O-12hではCloud operationを停止せず、上記比較・復旧を完了してからO-12iのwrite freezeへ進む。
 
 # Final Firestore backup timing
 
