@@ -291,13 +291,16 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 - watcher update detection / Processed Data publication: PASS
 - Processor、snapshot、migration、既存Web回帰を含む`npm test`: PASS（既知のtsx起動環境例外には検証用shimを使用）
 - 実Health Auto Export 109 JSONからの初回Processed Data生成: 失敗0件
+- clean-roomでの実raw再構築: 入力109件、失敗0件、可視レコード1838件
+- clean-room snapshotと稼働中snapshotのsleep-records SHA-256一致: **PASS**
+- Cloud API公開health endpoint: HTTP `200`
 
 未実施:
 
 - Cloud/localの実データ比較と意図的差分レビュー
 - Cloud稼働中の新規データ反映・重複排除の実運用比較
 - サーバー再起動後のsnapshot復旧確認
-- clean-room環境からの再構築確認
+- Cloudの保護されたview endpointは認証なしでHTTP `401`。Firebase認証済みのread-only比較セッションが必要
 
 O-12hではCloud operationを停止せず、上記比較・復旧を完了してからO-12iのwrite freezeへ進む。
 
