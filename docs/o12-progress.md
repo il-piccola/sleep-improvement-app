@@ -294,6 +294,8 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 - clean-roomでの実raw再構築: 入力109件、失敗0件、可視レコード1838件
 - clean-room snapshotと稼働中snapshotのsleep-records SHA-256一致: **PASS**
 - Cloud API公開health endpoint: HTTP `200`
+- Cloud版データ診断のread-only比較: 同一期間の睡眠ブロック70件でLocalと一致
+- 同一期間の採用レコードはCloud385件 / Local389件。Cloud側の最新Driveファイルは2026-08-17、Local側Processed Dataは2026-08-30までを含むため、現時点では更新時点差による意図的差分として扱う
 
 未実施:
 
@@ -301,6 +303,7 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 - Cloud稼働中の新規データ反映・重複排除の実運用比較
 - サーバー再起動後のsnapshot復旧確認
 - Cloudの保護されたview endpointは認証なしでHTTP `401`。Firebase認証済みのread-only比較セッションが必要
+- Firebase認証済みCloud UIでの比較は実施済み。ただしCloudとLocalの同一cutoffによるrecord-level parityは未確定
 
 O-12hではCloud operationを停止せず、上記比較・復旧を完了してからO-12iのwrite freezeへ進む。
 
