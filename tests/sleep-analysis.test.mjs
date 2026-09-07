@@ -92,6 +92,7 @@ async function runAllCases() {
   testUnifiedSplitSleepDoesNotDisappear()
   testUnifiedIsolatedAwakeIsNotCounted()
   testTodaySleepSummaryUsesCurrentSleepDayOnly()
+  testTodaySleepSummaryChoosesLatestDayRegardlessOfInputOrder()
   testTodaySleepSummaryUsesConfigurableBoundary()
   testTodaySleepSummaryReturnsNullWhenOnlyOldDataExists()
   testTodaySleepSummaryFallsBackAfterBoundaryWhenCurrentDayIsEmpty()
@@ -536,6 +537,7 @@ function testHealthImportConfigUsesDefaultsWithoutEnvLocal() {
   })
 
   assert.deepEqual(config, defaultHealthImportConfig)
+  assert.equal(config.startupScanEnabled, false)
 }
 
 function testHealthImportConfigCanBeOverriddenByEnv() {
@@ -544,6 +546,7 @@ function testHealthImportConfigCanBeOverriddenByEnv() {
     env: {
       HEALTH_EXPORT_WATCH_DIR: 'D:\\Health\\Sleep',
       HEALTH_IMPORT_SERVER_PORT: '9999',
+      HEALTH_IMPORT_STARTUP_SCAN_ENABLED: 'true',
       HEALTH_IMPORT_SCAN_INTERVAL_MS: '60000',
       HEALTH_IMPORT_USE_POLLING: 'false',
       HEALTH_IMPORT_POLL_INTERVAL_MS: '2000',
@@ -554,6 +557,7 @@ function testHealthImportConfigCanBeOverriddenByEnv() {
 
   assert.equal(config.watchDir, 'D:\\Health\\Sleep')
   assert.equal(config.serverPort, 9999)
+  assert.equal(config.startupScanEnabled, true)
   assert.equal(config.scanIntervalMs, 60_000)
   assert.equal(config.usePolling, false)
   assert.equal(config.pollIntervalMs, 2_000)
@@ -571,9 +575,31 @@ function testHealthImportConfigBuildsChokidarOptions() {
   })
 
   assert.equal(options.usePolling, true)
+  assert.equal(options.ignoreInitial, true)
   assert.equal(options.interval, 4_000)
   assert.equal(options.awaitWriteFinish.stabilityThreshold, 10_000)
   assert.equal(options.awaitWriteFinish.pollInterval, 4_000)
+
+  const startupScanOptions = toChokidarOptions({
+    ...defaultHealthImportConfig,
+    startupScanEnabled: true,
+  })
+  assert.equal(startupScanOptions.ignoreInitial, false)
+}
+
+function testTodaySleepSummaryChoosesLatestDayRegardlessOfInputOrder() {
+  const summaries = summarizeUnified([
+    sourceRecord('latest-main', 'apple_watch', 'Apple Watch', '2026-05-18T23:00:00+09:00', '2026-05-19T06:00:00+09:00', 'asleep_core'),
+    sourceRecord('older-main', 'apple_watch', 'Apple Watch', '2026-05-17T23:00:00+09:00', '2026-05-18T06:00:00+09:00', 'asleep_core'),
+  ]).reverse()
+  const selected = selectTodaySleepSummary(
+    summaries,
+    {},
+    new Date('2026-05-21T09:00:00+09:00'),
+  )
+
+  assert.equal(selected.latestSummary?.sleepDayKey, '2026-05-18')
+  assert.equal(selected.displaySummary?.sleepDayKey, '2026-05-18')
 }
 
 async function testServerStoreSkipsSameRecordsWhenFileIsReprocessed() {

@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import './App.css'
 import sampleSleepData from './sample/anonymized-sleep-records.json'
-import {
-  HealthAutoExportImportPanel,
-  type DriveSyncImportResult,
-} from './components/HealthAutoExportImportPanel'
+import { HealthAutoExportImportPanel } from './components/HealthAutoExportImportPanel'
 import type { HealthAutoExportImportResult } from './lib/importers/importTypes'
 import { buildSleepBlocks } from './lib/analysis/buildSleepBlocks'
 import { groupBySleepDay } from './lib/analysis/groupBySleepDay'
@@ -15,8 +12,6 @@ import { evaluateSourceQuality } from './lib/analysis/evaluateSourceQuality'
 import { buildUnifiedSleepTimeline } from './lib/analysis/buildUnifiedSleepTimeline'
 import { selectTodaySleepSummary } from './lib/analysis/selectTodaySleepSummary'
 import { normalizeSleepFile } from './lib/import/normalizeSleepFile'
-import { getAppIdToken, signInToApp, signOutFromApp, subscribeToAppAuthState } from './lib/appAuth'
-import { getFirebaseAuth } from './lib/firebaseClient'
 import { resolveSleepSource } from './lib/source/resolveSleepSource'
 import {
   buildSleepHealthChangeInsights,
@@ -127,12 +122,6 @@ type DayMetrics = {
   sleepMidpoint: string
 }
 
-type FirebaseUserInfo = {
-  displayName: string | null
-  email: string | null
-  uid: string
-}
-
 type SleepSourceDetail = {
   sourceKey: string
   displayName: string
@@ -198,46 +187,6 @@ type TrendComparison = {
   totalSleepDiffMinutes: number
 }
 
-type CloudImportStatusPayload = {
-  lastIngestedAt: string | null
-  lastBatchId: string | null
-  addedCount: number
-  skippedDuplicateCount: number
-  warningCount: number
-  sleepRecordCount: number
-}
-
-type CloudTimelinePayload = {
-  boundaryHour?: number
-  days?: Array<{
-    date: string
-    blocks: Array<{
-      start: string
-      end: string
-      durationMinutes: number
-      type: 'main' | 'nap' | 'supplemental' | 'evening' | 'unknown'
-      sourceKeys?: string[]
-      sourceLabels?: string[]
-      stageSegments?: Array<{
-        durationMinutes: number
-        end: string
-        stage: NonNullable<SleepRecord['stage']>
-        start: string
-      }>
-    }>
-  }>
-  month?: string
-}
-
-type MonthTimelineState = {
-  error?: string | null
-  generatedAt?: string
-  isLoading: boolean
-  month: string
-  records: SleepRecord[]
-  warnings: string[]
-}
-
 type DriveSyncStatusPayload = {
   lastSyncAt: string | null
   lastStatus: 'normal' | 'needs_attention' | 'not_synced'
@@ -282,8 +231,6 @@ const SETTINGS_STORAGE_KEY = 'sleep-improvement.analysis-config'
 const LOCAL_IMPORT_SERVER_URL =
   import.meta.env.VITE_HEALTH_IMPORT_SERVER_URL ??
   ''
-const CLOUD_API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-const FIREBASE_AUTH = CLOUD_API_BASE_URL ? getFirebaseAuth() : null
 const EMPTY_SLEEP_DATA: SleepDataFile = {
   records: [],
   warnings: [],
@@ -296,18 +243,10 @@ function App() {
   const [sourcePreferences, setSourcePreferences] = useState<SleepSourcePreferenceMap>(
     loadStoredSourcePreferences,
   )
-  const [fileStatus, setFileStatus] = useState(
-    CLOUD_API_BASE_URL ? 'Cloud Run APIから睡眠データを取得中です' : 'ローカル自動取り込みサーバーを確認中です',
-  )
+  const [fileStatus, setFileStatus] = useState('ローカル自動取り込みサーバーを確認中です')
   const [timelineView, setTimelineView] = useState<TimelineViewMode>('unified')
   const [timelineMonth, setTimelineMonth] = useState(getCurrentMonthKey)
   const [timelineMonthPinned, setTimelineMonthPinned] = useState(false)
-  const [monthTimeline, setMonthTimeline] = useState<MonthTimelineState>({
-    isLoading: false,
-    month: getCurrentMonthKey(),
-    records: [],
-    warnings: [],
-  })
   const [localImportStatus, setLocalImportStatus] = useState<LocalImportStatus>({
     connected: false,
   })
@@ -315,23 +254,6 @@ function App() {
   const [sleepHealthContext, setSleepHealthContext] = useState<SleepHealthContextState>({
     days: [],
   })
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUserInfo | null>(null)
-  const [cloudDataRefreshNonce, setCloudDataRefreshNonce] = useState(0)
-  const firebaseAuthAvailable = Boolean(FIREBASE_AUTH)
-  const signInFromDashboard = async () => {
-    if (!FIREBASE_AUTH) {
-      setFileStatus('Firebase設定が見つかりません。')
-      setActiveScreen('settings')
-      return
-    }
-
-    try {
-      setFileStatus('Googleログインを確認しています')
-      await signInToApp(FIREBASE_AUTH)
-    } catch (error) {
-      setFileStatus(error instanceof Error ? error.message : 'ログインできませんでした。')
-    }
-  }
 
   const analysis = useMemo(() => {
     const rawBlocks = buildSleepBlocks(sleepData.records, config)
@@ -395,20 +317,10 @@ function App() {
   }, [sourcePreferences])
 
   useEffect(() => {
-    if (!FIREBASE_AUTH) {
-      return
-    }
-
-    return subscribeToAppAuthState(FIREBASE_AUTH, setFirebaseUser)
-  }, [])
-
-  useEffect(() => {
     let cancelled = false
 
     const refresh = async () => {
-      const result = CLOUD_API_BASE_URL
-        ? await fetchCloudServerData(firebaseUser, config.sleepDayBoundaryHour)
-        : await fetchLocalServerData()
+      const result = await fetchLocalServerData()
 
       if (cancelled) {
         return
@@ -426,11 +338,7 @@ function App() {
           records: result.records,
           warnings: result.warnings,
         })
-        setFileStatus(
-          CLOUD_API_BASE_URL
-            ? 'Cloud Run APIから最新データを取得しました'
-            : 'ローカル自動取り込みサーバーから最新データを取得しました',
-        )
+        setFileStatus('ローカル自動取り込みサーバーから最新データを取得しました')
       }
     }
 
@@ -443,89 +351,7 @@ function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [cloudDataRefreshNonce, config.sleepDayBoundaryHour, firebaseUser])
-
-  useEffect(() => {
-    if (!CLOUD_API_BASE_URL) {
-      return
-    }
-
-    let cancelled = false
-
-    const refreshMonth = async () => {
-      setMonthTimeline((current) => ({
-        ...current,
-        error: null,
-        isLoading: true,
-        month: selectedTimelineMonth,
-      }))
-
-      const result = await fetchCloudTimelineMonth(
-        firebaseUser,
-        config.sleepDayBoundaryHour,
-        selectedTimelineMonth,
-      )
-
-      if (cancelled) {
-        return
-      }
-
-      setMonthTimeline(result)
-    }
-
-    void refreshMonth()
-
-    return () => {
-      cancelled = true
-    }
-  }, [cloudDataRefreshNonce, config.sleepDayBoundaryHour, firebaseUser, selectedTimelineMonth])
-
-  const handleDriveSyncFromImport = async (): Promise<DriveSyncImportResult> => {
-    if (!CLOUD_API_BASE_URL || !FIREBASE_AUTH || !firebaseUser) {
-      throw new Error('Google Driveから取り込むにはログインが必要です。')
-    }
-
-    const idToken = await getAppIdToken(FIREBASE_AUTH)
-
-    if (!idToken) {
-      throw new Error('Firebase ID Tokenを取得できませんでした。')
-    }
-
-    const query = new URLSearchParams({
-      boundaryHour: String(config.sleepDayBoundaryHour),
-    })
-    const response = await fetch(`${CLOUD_API_BASE_URL}/api/drive-sync?${query.toString()}`, {
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-      },
-      method: 'POST',
-    })
-    const payload = (await response.json().catch(() => null)) as
-      | {
-          checkedFiles?: number
-          error?: string
-          failedFiles?: number
-          processedFiles?: number
-          skippedAlreadyProcessed?: number
-        }
-      | null
-
-    if (!response.ok) {
-      throw new Error(payload?.error ?? 'Google Drive同期を実行できませんでした。')
-    }
-
-    const syncResult = {
-      checkedFiles: payload?.checkedFiles ?? 0,
-      failedFiles: payload?.failedFiles ?? 0,
-      processedFiles: payload?.processedFiles ?? 0,
-      skippedAlreadyProcessed: payload?.skippedAlreadyProcessed ?? 0,
-    }
-    setFileStatus(
-      `Google Driveを確認しました。新規 ${syncResult.processedFiles}件、処理済み ${syncResult.skippedAlreadyProcessed}件`,
-    )
-    setCloudDataRefreshNonce((current) => current + 1)
-    return syncResult
-  }
+  }, [config.sleepDayBoundaryHour])
 
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
@@ -553,7 +379,7 @@ function App() {
 
   const displaySummaries = sortSleepSummariesDesc(analysis.summaries)
   const monthVisibleSummaries = useMemo(() => {
-    const records = CLOUD_API_BASE_URL ? monthTimeline.records : sleepData.records
+    const records = sleepData.records
     const rawBlocks = buildSleepBlocks(records, config)
     const rawGroups = groupBySleepDay(rawBlocks, config)
     const rawSummaries = rawGroups.map((group) => summarizeSleepDay(group, config))
@@ -565,21 +391,15 @@ function App() {
     return filterSummariesByMonth(sortSleepSummariesDesc(selectedSummaries), selectedTimelineMonth)
   }, [
     config,
-    monthTimeline.records,
     selectedTimelineMonth,
     sleepData.records,
     sourcePreferences,
     timelineView,
   ])
-  const monthTimelineStatus = CLOUD_API_BASE_URL
-    ? {
-        error: monthTimeline.error,
-        isLoading: monthTimeline.isLoading,
-      }
-    : {
-        error: null,
-        isLoading: false,
-      }
+  const monthTimelineStatus = {
+    error: null,
+    isLoading: false,
+  }
   const handleTimelineMonthChange = (month: string) => {
     setTimelineMonth(normalizeMonthInput(month))
     setTimelineMonthPinned(true)
@@ -663,10 +483,6 @@ function App() {
           importedAt={sleepData.generatedAt}
           localImportStatus={localImportStatus}
           metrics={analysis.todayMetrics}
-          firebaseAuthAvailable={firebaseAuthAvailable}
-          firebaseUser={firebaseUser}
-          onOpenSettings={() => setActiveScreen('settings')}
-          onSignIn={signInFromDashboard}
           summary={analysis.todaySummary}
           summaries={displaySummaries}
           sleepHealthContext={sleepHealthContext}
@@ -706,8 +522,6 @@ function App() {
       {activeScreen === 'settings' && (
         <Settings
           config={config}
-          firebaseAuthAvailable={firebaseAuthAvailable}
-          firebaseUser={firebaseUser}
           onChange={setConfig}
           onReset={() => {
             setConfig(defaultAnalysisConfig)
@@ -720,8 +534,6 @@ function App() {
         <FileImport
           details={analysis.sourceDetails}
           fileStatus={fileStatus}
-          canSyncFromDrive={Boolean(CLOUD_API_BASE_URL && FIREBASE_AUTH && firebaseUser)}
-          onDriveSync={handleDriveSyncFromImport}
           onHealthAutoExportImported={(result) => {
             setSleepData(toSleepDataFile(result))
             setFileStatus(
@@ -771,10 +583,10 @@ async function fetchLocalServerData(): Promise<{
 }> {
   try {
     const [recordsResponse, statusResponse, sleepHealthContextResponse, driveStatusResponse] = await Promise.all([
-      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/health-records`),
-      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/import-status`),
-      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/sleep-health-context`),
-      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/drive-sync-status`),
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/health-records`, { cache: 'no-store' }),
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/import-status`, { cache: 'no-store' }),
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/sleep-health-context`, { cache: 'no-store' }),
+      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/drive-sync-status`, { cache: 'no-store' }),
     ])
 
     if (!recordsResponse.ok || !statusResponse.ok) {
@@ -819,216 +631,10 @@ async function fetchLocalServerData(): Promise<{
   }
 }
 
-async function fetchCloudServerData(
-  user: FirebaseUserInfo | null,
-  boundaryHour: number,
-): Promise<{
-  generatedAt?: string
-  driveSyncStatus?: DriveSyncStatusPayload | null
-  records: SleepRecord[]
-  sleepHealthContext?: SleepHealthContextState
-  warnings: string[]
-  status: LocalImportStatus
-}> {
-  if (!FIREBASE_AUTH || !user) {
-    return {
-      records: [],
-      driveSyncStatus: null,
-      sleepHealthContext: {
-        days: [],
-        error: 'ログイン後に表示します。',
-      },
-      warnings: [],
-      status: {
-        connected: false,
-        lastError: 'Cloud Runの睡眠データを見るにはFirebaseログインが必要です。',
-      },
-    }
-  }
-
-  try {
-    const idToken = await getAppIdToken(FIREBASE_AUTH)
-
-    if (!idToken) {
-      throw new Error('Firebase ID Tokenを取得できませんでした。')
-    }
-
-    const headers = {
-      Authorization: `Bearer ${idToken}`,
-    }
-    const boundaryQuery = `boundaryHour=${encodeURIComponent(String(boundaryHour))}`
-    const [statusResponse, timelineResponse] = await Promise.all([
-      fetch(`${CLOUD_API_BASE_URL}/api/import-status`, { headers }),
-      fetch(`${CLOUD_API_BASE_URL}/api/unified-timeline?days=30&${boundaryQuery}`, { headers }),
-    ])
-    const driveStatusResponse = await fetch(`${CLOUD_API_BASE_URL}/api/drive-sync-status`, {
-      headers,
-    })
-    const sleepHealthContextResponse = await fetch(
-      `${CLOUD_API_BASE_URL}/api/sleep-health-context?days=30&${boundaryQuery}`,
-      { headers },
-    )
-
-    if (!statusResponse.ok || !timelineResponse.ok || !driveStatusResponse.ok) {
-      throw new Error('Cloud Run APIから睡眠データを取得できません。')
-    }
-
-    const statusPayload = (await statusResponse.json()) as CloudImportStatusPayload
-    const timelinePayload = (await timelineResponse.json()) as CloudTimelinePayload
-    const driveSyncStatus = (await driveStatusResponse.json()) as DriveSyncStatusPayload
-    const sleepHealthContext = sleepHealthContextResponse.ok
-      ? ((await sleepHealthContextResponse.json()) as SleepHealthContextPayload)
-      : null
-    const records = cloudTimelineToSleepRecords(timelinePayload)
-
-    return {
-      generatedAt: statusPayload.lastIngestedAt ?? undefined,
-      driveSyncStatus,
-      sleepHealthContext: {
-        days: Array.isArray(sleepHealthContext?.days) ? sleepHealthContext.days : [],
-        error: sleepHealthContextResponse.ok
-          ? null
-          : sleepHealthContextResponse.status === 401
-            ? 'ログイン状態を確認すると、変化候補を表示できます。'
-            : '変化候補を取得できませんでした。',
-      },
-      records,
-      warnings: [],
-      status: {
-        connected: true,
-        isWatching: false,
-        lastImportedAt: statusPayload.lastIngestedAt,
-        lastProcessedFileName: statusPayload.lastBatchId,
-        latestImport: {
-          importedFileName: statusPayload.lastBatchId ?? 'Cloud Run',
-          importedAt: statusPayload.lastIngestedAt ?? new Date().toISOString(),
-          readFileCount: 0,
-          normalizedCount: statusPayload.sleepRecordCount,
-          newRecordCount: statusPayload.addedCount,
-          duplicateSkippedCount: statusPayload.skippedDuplicateCount,
-          rejectedRows: 0,
-          warningCount: statusPayload.warningCount,
-        },
-      },
-    }
-  } catch (error) {
-    return {
-      records: [],
-      driveSyncStatus: null,
-      sleepHealthContext: {
-        days: [],
-        error: error instanceof Error ? error.message : '変化候補を取得できませんでした。',
-      },
-      warnings: [],
-      status: {
-        connected: false,
-        lastError: error instanceof Error ? error.message : 'Cloud Run APIから取得できません。',
-      },
-    }
-  }
-}
-
-async function fetchCloudTimelineMonth(
-  user: FirebaseUserInfo | null,
-  boundaryHour: number,
-  month: string,
-): Promise<MonthTimelineState> {
-  if (!FIREBASE_AUTH || !user) {
-    return {
-      error: 'ログイン後に表示します。',
-      isLoading: false,
-      month,
-      records: [],
-      warnings: [],
-    }
-  }
-
-  try {
-    const idToken = await getAppIdToken(FIREBASE_AUTH)
-
-    if (!idToken) {
-      throw new Error('Firebase ID Tokenを取得できませんでした。')
-    }
-
-    const query = new URLSearchParams({
-      boundaryHour: String(boundaryHour),
-      month,
-    })
-    const response = await fetch(`${CLOUD_API_BASE_URL}/api/unified-timeline?${query.toString()}`, {
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error('指定月のタイムラインを取得できません。')
-    }
-
-    const payload = (await response.json()) as CloudTimelinePayload
-
-    return {
-      generatedAt: new Date().toISOString(),
-      isLoading: false,
-      month: payload.month ?? month,
-      records: cloudTimelineToSleepRecords(payload),
-      warnings: [],
-    }
-  } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : '指定月のタイムラインを取得できません。',
-      isLoading: false,
-      month,
-      records: [],
-      warnings: [],
-    }
-  }
-}
-
-function cloudTimelineToSleepRecords(payload: CloudTimelinePayload): SleepRecord[] {
-  return (payload.days ?? []).flatMap((day) =>
-    day.blocks.flatMap((block, index): SleepRecord[] => {
-      const sourceKey = block.sourceKeys?.[0] ?? 'unknown_source:cloud_run_api'
-      const sourceLabel = block.sourceLabels?.[0] ?? toSourceKeyDisplay(sourceKey)
-      const segments =
-        block.stageSegments && block.stageSegments.length > 0
-          ? block.stageSegments
-          : [
-              {
-                durationMinutes: block.durationMinutes,
-                end: block.end,
-                stage: 'asleep' as const,
-                start: block.start,
-              },
-            ]
-
-      return segments.map((segment, segmentIndex): SleepRecord => ({
-        id: `cloud-${day.date}-${index}-${segmentIndex}-${segment.start}`,
-        value: segment.stage,
-        sourceFormat: 'cloud_run_api',
-        sourceFile: 'cloud_run_unified_timeline',
-        sourceKey,
-        sourceApp: sourceLabel,
-        sourceName: sourceLabel,
-        sourceKind: 'present',
-        sourceLabel,
-        originalValue: block.type,
-        start: segment.start,
-        end: segment.end,
-        startDate: segment.start,
-        endDate: segment.end,
-        stage: normalizeTimelineStage(segment.stage),
-        durationMinutes: segment.durationMinutes,
-        hasStartDate: true,
-        hasEndDate: true,
-        hasSource: true,
-      }))
-    }),
-  )
-}
-
 async function requestLocalRescan(): Promise<LocalImportStatus> {
   try {
     const response = await fetch(`${LOCAL_IMPORT_SERVER_URL}/api/rescan`, {
+      cache: 'no-store',
       method: 'POST',
     })
 
@@ -1365,12 +971,8 @@ function TodaySleep({
   driveSyncStatus,
   importedAt,
   isFallbackSleepDay,
-  firebaseAuthAvailable,
-  firebaseUser,
   localImportStatus,
   metrics,
-  onOpenSettings,
-  onSignIn,
   summary,
   summaries,
   sleepHealthContext,
@@ -1381,12 +983,8 @@ function TodaySleep({
   driveSyncStatus: DriveSyncStatusPayload | null
   importedAt?: string
   isFallbackSleepDay: boolean
-  firebaseAuthAvailable: boolean
-  firebaseUser: FirebaseUserInfo | null
   localImportStatus: LocalImportStatus
   metrics: DayMetrics | null
-  onOpenSettings: () => void
-  onSignIn: () => Promise<void>
   summary: SleepDaySummary | null
   summaries: SleepDaySummary[]
   sleepHealthContext: SleepHealthContextState
@@ -1420,34 +1018,6 @@ function TodaySleep({
               <strong>{targetSleepDayKey}</strong>
               のデータが届くと、ここに今日の状態を表示します。
             </p>
-            {CLOUD_API_BASE_URL && (
-              <div className="drive-sync-mini warning">
-                <span>Cloud API表示</span>
-                <strong>
-                  {!firebaseAuthAvailable
-                    ? 'Firebase設定を確認してください'
-                    : firebaseUser
-                      ? '実データを取得中です'
-                      : 'Googleログインが必要です'}
-                </strong>
-                <p>
-                  {localImportStatus.lastError ??
-                    (firebaseUser
-                      ? '同期済みデータを読み込んでいます。少し待っても変わらない場合は再読み込みしてください。'
-                      : 'ログイン後、Google Drive同期済みの睡眠データを表示します。')}
-                </p>
-                <div className="settings-actions">
-                  {!firebaseUser && firebaseAuthAvailable && (
-                    <button className="secondary-button" onClick={() => void onSignIn()} type="button">
-                      Googleでログイン
-                    </button>
-                  )}
-                  <button className="secondary-button" onClick={onOpenSettings} type="button">
-                    設定を確認
-                  </button>
-                </div>
-              </div>
-            )}
             <CompactSyncStatus status={syncStatus} />
           </div>
           <div className="today-total">
@@ -2570,14 +2140,10 @@ function ActionGroup({
 
 function Settings({
   config,
-  firebaseAuthAvailable,
-  firebaseUser,
   onChange,
   onReset,
 }: {
   config: AnalysisConfig
-  firebaseAuthAvailable: boolean
-  firebaseUser: FirebaseUserInfo | null
   onChange: (config: AnalysisConfig) => void
   onReset: () => void
 }) {
@@ -2603,10 +2169,6 @@ function Settings({
         eyebrow="設定"
         title="睡眠の見方と改善ペースを調整する"
         description="分析の基準をこの端末に保存します。変更すると、今日の睡眠・タイムライン・改善アクションを同じ条件で再計算します。"
-      />
-      <FirebaseUserPanel
-        authAvailable={firebaseAuthAvailable}
-        user={firebaseUser}
       />
 
       <Panel title="睡眠日の見方">
@@ -2702,100 +2264,6 @@ function Settings({
         </ul>
       </Panel>
     </section>
-  )
-}
-
-function FirebaseUserPanel({
-  authAvailable,
-  user,
-}: {
-  authAvailable: boolean
-  user: FirebaseUserInfo | null
-}) {
-  const [copyStatus, setCopyStatus] = useState('')
-  const [authStatus, setAuthStatus] = useState('')
-
-  const signIn = async () => {
-    if (!FIREBASE_AUTH) {
-      setAuthStatus('Firebase設定が見つかりません。')
-      return
-    }
-
-    try {
-      setAuthStatus('')
-      await signInToApp(FIREBASE_AUTH)
-    } catch (error) {
-      setAuthStatus(error instanceof Error ? error.message : 'ログインできませんでした。')
-    }
-  }
-
-  const logOut = async () => {
-    if (!FIREBASE_AUTH) {
-      return
-    }
-
-    try {
-      setAuthStatus('')
-      await signOutFromApp(FIREBASE_AUTH)
-    } catch (error) {
-      setAuthStatus(error instanceof Error ? error.message : 'ログアウトできませんでした。')
-    }
-  }
-
-  const copyUid = async () => {
-    if (!user?.uid) {
-      return
-    }
-
-    try {
-      await navigator.clipboard.writeText(user.uid)
-      setCopyStatus('コピーしました')
-    } catch {
-      setCopyStatus('コピーできませんでした')
-    }
-  }
-
-  return (
-    <Panel title="ログイン状態">
-      {!authAvailable && (
-        <p className="settings-copy">
-          Firebase設定が見つからないため、ログイン情報を表示できません。
-        </p>
-      )}
-      {authAvailable && !user && (
-        <div className="auth-user-card">
-          <p className="settings-copy">
-            Firebaseにログインしていません。ログイン後、ここにUIDが表示されます。
-          </p>
-          <button className="secondary-button auth-button" onClick={() => void signIn()} type="button">
-            Googleでログイン
-          </button>
-        </div>
-      )}
-      {user && (
-        <div className="auth-user-card">
-          <StatusRow label="表示名" value={user.displayName ?? '未設定'} />
-          <StatusRow label="メールアドレス" value={user.email ?? '未設定'} />
-          <div className="status-row uid-row">
-            <span>Firebase UID</span>
-            <div>
-              <strong>{user.uid}</strong>
-              <button className="secondary-button" onClick={() => void copyUid()} type="button">
-                コピー
-              </button>
-            </div>
-          </div>
-          <p className="settings-copy auth-note">
-            このUIDをCloud Runの ALLOWED_FIREBASE_UIDS に設定します。ID Token本文は表示しません。
-          </p>
-          {copyStatus && <p className="file-status">{copyStatus}</p>}
-          <button className="secondary-button auth-button" onClick={() => void logOut()} type="button">
-            ログアウト
-          </button>
-        </div>
-      )}
-      {authStatus && <p className="import-error">{authStatus}</p>}
-    </Panel>
   )
 }
 
@@ -2954,10 +2422,8 @@ function SourceSettings({
 }
 
 function FileImport({
-  canSyncFromDrive,
   details,
   fileStatus,
-  onDriveSync,
   onHealthAutoExportImported,
   onFileChange,
   onSourcePreferencesChange,
@@ -2965,10 +2431,8 @@ function FileImport({
   onUseSample,
   preferences,
 }: {
-  canSyncFromDrive: boolean
   details: SleepSourceDetail[]
   fileStatus: string
-  onDriveSync: () => Promise<DriveSyncImportResult>
   onHealthAutoExportImported: Parameters<typeof HealthAutoExportImportPanel>[0]['onImported']
   onFileChange: (file: File | undefined) => void
   onSourcePreferencesChange: (preferences: SleepSourcePreferenceMap) => void
@@ -2981,15 +2445,13 @@ function FileImport({
       <PageHeader
         eyebrow="データ取り込み"
         title="取り込みと睡眠ソースを確認する"
-        description="通常運用はGoogle Drive同期で自動取り込みします。手動確認と、表示に使う睡眠ソースの設定をここで確認できます。"
+        description="通常運用はローカル取り込みサーバーがGoogle Driveの同期フォルダを監視します。手動確認と、表示に使う睡眠ソースの設定をここで確認できます。"
       />
       <SectionIntro
-        title="通常はGoogle Drive同期で十分です"
-        description="Health Auto ExportがGoogle Driveへ保存したJSONは、Cloud Runが定期的に取得します。ここでファイルを選ぶ必要があるのは、手元のファイルを確認したい時だけです。"
+        title="通常はローカル自動取り込みで十分です"
+        description="Health Auto ExportがGoogle Driveの同期フォルダへ保存したJSONは、ローカル取り込みサーバーが取得します。ここでファイルを選ぶ必要があるのは、手元のファイルを確認したい時だけです。"
       />
       <HealthAutoExportImportPanel
-        canSyncFromDrive={canSyncFromDrive}
-        onDriveSync={onDriveSync}
         onImported={onHealthAutoExportImported}
       />
 

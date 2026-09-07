@@ -1,6 +1,6 @@
 # O-12 Local-first Cloud Exit Plan
 
-Status: **Approved baseline — preservation timing clarified 2026-08-26**  
+Status: **Approved baseline — preservation timing clarified 2026-08-26; Web Firebase boundary revised 2026-09-08**<br>
 Scope: infrastructure and data-platform migration  
 Primary goal: **remove Sleep Compass runtime dependencies on chargeable Google Cloud services while preserving all existing data assets**
 
@@ -18,6 +18,14 @@ The target is not merely to move the web app onto one Windows machine. The targe
 The Data Processor must be able to run without Sleep Compass. Processed data is treated as a durable data asset, not as a disposable cache.
 
 O-12 must not introduce a new paid cloud dependency.
+
+O-12 also defines an explicit Web boundary. The Sleep Compass Web application must
+not depend on Firebase at runtime or through its Web source/bundle path. This means
+that the Web path must not retain Firebase configuration, Firebase authentication
+UI, Cloud API mode switching, Firebase imports, or Firebase SDK code in the
+production Web bundle. Android-specific authentication and the legacy `cloud-api`
+source may remain only when they are isolated from the Web dependency graph and
+are not required for normal local Web operation.
 
 ## 2. Target architecture
 
@@ -202,6 +210,18 @@ External device access is provided through Tailscale Serve. Tailscale Funnel is 
 
 The local Sleep Compass path should no longer require Firebase Authentication once the Tailscale-based access model is validated.
 
+For the Web application, this is a source and artifact acceptance condition, not
+only a runtime flag:
+
+- the Web entry path must not import `firebase`, `firebase/auth`, or
+  `@capacitor-firebase/authentication`,
+- the Web path must not expose Firebase login/logout controls or Cloud API mode
+  switching,
+- Web build configuration must not provide Firebase or Cloud API credentials,
+- the production Web bundle must not contain Firebase SDK modules, and
+- Android-specific Firebase authentication, if retained, must be behind an
+  Android-only boundary that the Web build does not import.
+
 ## 9. Google Cloud exit target
 
 At O-12 completion, normal Sleep Compass operation must not depend on:
@@ -223,7 +243,7 @@ Cloud removal is staged. Preservation procedure readiness must complete before l
 
 ## 10. Execution map
 
-For readability, O-12 is managed as six major stages. The O-12a through O-12j work phases are the detailed execution units under those stages.
+For readability, O-12 is managed as six major stages plus a post-cutover corrective Web gate. The O-12a through O-12j work phases are the detailed execution units under those stages; O-12k is the explicit Web Firebase detachment gate.
 
 ### Stage-to-phase correspondence
 
@@ -235,12 +255,13 @@ For readability, O-12 is managed as six major stages. The O-12a through O-12j wo
 | **Stage 3 — Processor** | **O-12d** | Processor hardening | Safe snapshots, corruption handling, OS/path independence, efficient fingerprinting, watcher/rescan, and Google Drive processed-data backup are working. |
 | **Stage 4 — Preservation readiness** | **O-12e** | Existing-data preservation readiness | Every known Firestore/local source has a defined private preservation method; all six Firestore categories are covered; count/byteLength/SHA verification and N100/Drive copy procedures are ready; production final backup is intentionally deferred until write freeze. |
 | **Stage 5 — Sleep Compass local runtime** | **O-12f** | Sleep Compass independence | Sleep Compass consumes Processed Data instead of Cloud persistence and required local API parity is available. |
-| **Stage 5 — Sleep Compass local runtime** | **O-12g** | Local Web + Tailscale | React/API are same-origin, server is localhost-only, local Firebase Auth dependency is removed, and Tailscale Serve access works. |
+| **Stage 5 — Sleep Compass local runtime** | **O-12g** | Local Web + Tailscale | React/API are same-origin, server is localhost-only, local Web runtime does not use Firebase Auth, and Tailscale Serve access works. |
 | **Stage 5 — Sleep Compass local runtime** | **O-12h** | Parallel validation and recovery test | Cloud/local parity, new-data processing, deduplication, restart behavior, intentional-difference review, and clean-room recovery are verified while Cloud remains available. |
 | **Stage 6 — Cloud exit** | **O-12i** | Cloud write freeze, final preservation, local-only verification | Cloud ingest/sync writes are reversibly frozen; in-flight writes are absent; the latest Firestore/local state is preserved to N100 + Google Drive with integrity verification; write freeze is maintained; local-only processing is verified. |
 | **Stage 6 — Cloud exit** | **O-12j** | Complete Cloud exit | Final resource/Billing audit is complete; O-12i final preservation remains valid; Firestore/Cloud resources are removed when safe; Billing is disabled; and the project is shut down only if confirmed dedicated. |
+| **Stage 5 corrective gate** | **O-12k** | Web Firebase detachment | Web source, dependency graph, configuration, and production bundle are Firebase-free; Android and legacy Cloud API Firebase code, if retained, is isolated and excluded from the Web build. |
 
-The stage order and gates are mandatory. O-12e must complete before O-12f. O-12h must pass before Cloud write freeze. O-12i final preservation and local-only verification must pass before Firestore/Cloud deletion, Billing disablement, or project shutdown in O-12j.
+The stage order and gates are mandatory. O-12e must complete before O-12f. O-12h must pass before Cloud write freeze. O-12i final preservation and local-only verification must pass before Firestore/Cloud deletion, Billing disablement, or project shutdown in O-12j. O-12k is a post-cutover corrective gate and must pass before Web Firebase detachment is considered complete.
 
 Detailed progress is maintained separately in [`docs/o12-progress.md`](./o12-progress.md). This baseline describes what O-12 means; the progress document records where implementation currently stands.
 
@@ -317,7 +338,7 @@ Complete:
 - local API parity required by the Web UI
 - same-origin React + API serving
 - localhost-only binding
-- removal of local Firebase Auth dependency
+- removal of local Web Firebase Auth runtime dependency
 - Tailscale Serve access
 - parity checks against the existing Cloud version
 - new-data processing and deduplication checks
@@ -361,12 +382,17 @@ O-12 is complete only when all of the following are true:
 12. Normal operation no longer depends on Cloud Run, Firestore, Cloud Scheduler, Firebase Hosting/Auth, or Google Drive API.
 13. No new paid cloud service was introduced for O-12.
 14. The Sleep Compass Google Cloud project has no active Billing relationship at final cutover and, if confirmed dedicated to Sleep Compass, is shut down.
+15. The Web source path has no Firebase imports, Firebase configuration, Firebase authentication UI, or Cloud API mode branch.
+16. The Web dependency graph and production bundle contain no Firebase SDK or Capacitor Firebase authentication code.
+17. Any retained Android or legacy `cloud-api` Firebase code is isolated from the Web dependency graph and is not required for local Web operation.
 
 ## 12. Out of scope
 
 O-12 does not reopen unrelated product work. In particular, it does not include:
 
 - mobile app development/release work
+- removal of Android Firebase authentication, unless separately approved
+- deletion or rewrite of the legacy `cloud-api`, unless separately approved
 - CPAP OCR
 - new AI health inference
 - major UI redesign

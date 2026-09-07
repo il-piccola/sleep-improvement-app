@@ -1,4 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http'
+import { readdir, stat } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { loadHealthImportConfig } from './config.ts'
 import { loadHealthStore, loadHealthStoreWithStatus } from './healthStore.ts'
 import { createHealthExportWatcher } from './watchHealthExports.ts'
@@ -17,9 +19,22 @@ const watcher = createHealthExportWatcher(config, undefined, {
 })
 
 if (config.watchEnabled) {
-  void watcher.start().catch((error) => {
-    watcher.status.lastError = error instanceof Error ? error.message : String(error)
-  })
+  const startWatcher = () =>
+    watcher.start().catch((error) => {
+      watcher.status.lastError = error instanceof Error ? error.message : String(error)
+    })
+
+  if (config.startupScanEnabled) {
+    void startWatcher()
+  } else {
+    void reconcileProcessedData()
+      .catch((error) => {
+        watcher.status.lastError = error instanceof Error ? error.message : String(error)
+      })
+      .finally(() => {
+        void startWatcher()
+      })
+  }
 }
 
 const server = createServer(async (request, response) => {
@@ -89,6 +104,7 @@ const server = createServer(async (request, response) => {
       sendJson(response, {
         ...watcher.status,
         watchEnabled: config.watchEnabled,
+        startupScanEnabled: config.startupScanEnabled,
         watchDir: config.watchDir,
         scanIntervalMs: config.scanIntervalMs,
         usePolling: config.usePolling,
@@ -231,7 +247,56 @@ async function shutdown() {
 
 function sendJson(response: ServerResponse, body: unknown, status = 200) {
   response.writeHead(status, {
+    'Cache-Control': 'no-store, max-age=0',
     'Content-Type': 'application/json; charset=utf-8',
   })
   response.end(JSON.stringify(body))
+}
+
+async function reconcileProcessedData(): Promise<void> {
+  const processed = await loadLatestProcessedData(config.processedDataDir).catch(() => null)
+  const raw = await inspectRawJsonFiles(config.watchDir)
+
+  if (!processed || raw.fileCount !== processed.inputFiles.length) {
+    await publishLocalProcessedData(config)
+    return
+  }
+
+  const processedLatestModifiedAt = Math.max(
+    ...processed.inputFiles
+      .map((file) => Date.parse(typeof file.modifiedAt === 'string' ? file.modifiedAt : ''))
+      .filter(Number.isFinite),
+    Number.NEGATIVE_INFINITY,
+  )
+  if (raw.latestModifiedAt > processedLatestModifiedAt) {
+    await publishLocalProcessedData(config)
+  }
+}
+
+async function inspectRawJsonFiles(dir: string): Promise<{ fileCount: number; latestModifiedAt: number }> {
+  const files: string[] = []
+  await collectJsonFiles(resolve(dir), files)
+  let latestModifiedAt = Number.NEGATIVE_INFINITY
+
+  for (const file of files) {
+    const metadata = await stat(file)
+    if (metadata.mtimeMs > latestModifiedAt) {
+      latestModifiedAt = metadata.mtimeMs
+    }
+  }
+
+  return { fileCount: files.length, latestModifiedAt }
+}
+
+async function collectJsonFiles(dir: string, files: string[]): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const file = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      await collectJsonFiles(file, files)
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
+      files.push(file)
+    }
+  }
 }

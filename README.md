@@ -4,8 +4,20 @@ Sleep Compass is a self-hosted, cross-device sleep dashboard. It imports iPhone 
 
 Current web features include month-based sleep views, timeline and split-sleep summaries, REM/Core/Deep sleep stage display when source data provides it, data diagnosis, sync status visibility, and a consolidated data import / sleep source settings screen.
 
+The Web application is local-first and does not use Firebase, Firebase Authentication, Firebase Hosting, or the legacy Cloud API. The production Web build reads from the local API through the same-origin `/api` path. Android-specific Firebase/Cloud compatibility is maintained as a separate mobile boundary.
+
 For the scheduled Google Drive sync setup, see [O-10 Drive Auto Sync](docs/o10-drive-auto-sync.md).
 For the consolidated data import and sleep source settings screen, see [O-11 Data Import Screen Consolidation](docs/o11-data-import-screen-consolidation.md).
+
+## Local Web operation
+
+Start the Web application and its local API together before opening the Tailscale URL:
+
+```powershell
+npm run dev:all
+```
+
+Tailscale Serve forwards `https://leto.taile04360.ts.net/` to Web port `5173`, and the Web `/api` proxy forwards to the local API on port `8787`. If the `dev:all` process is stopped, the Tailscale page returns `502 Bad Gateway` and the browser may show `Load failed`.
 
 ## Android display app verification
 

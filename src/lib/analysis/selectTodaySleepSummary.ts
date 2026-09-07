@@ -23,7 +23,8 @@ export function selectTodaySleepSummary(
 } {
   const targetSleepDayKey = getCurrentSleepDayKey(now, config)
   const todaySummary = summaries.find((summary) => summary.sleepDayKey === targetSleepDayKey) ?? null
-  const latestSummary = summaries.at(-1) ?? null
+  const latestSummary =
+    [...summaries].sort((left, right) => right.sleepDayKey.localeCompare(left.sleepDayKey))[0] ?? null
   const displaySummary = todaySummary ?? latestSummary
 
   return {

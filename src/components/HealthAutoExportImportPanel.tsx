@@ -3,16 +3,7 @@ import type { HealthAutoExportImportResult } from '../lib/importers/importTypes'
 import { importHealthAutoExportJson } from '../lib/importers/importHealthAutoExportJson'
 
 type HealthAutoExportImportPanelProps = {
-  canSyncFromDrive?: boolean
-  onDriveSync?: () => Promise<DriveSyncImportResult>
   onImported: (result: HealthAutoExportImportResult) => void
-}
-
-export type DriveSyncImportResult = {
-  checkedFiles: number
-  failedFiles: number
-  processedFiles: number
-  skippedAlreadyProcessed: number
 }
 
 const stageLabels: Record<string, string> = {
@@ -26,15 +17,11 @@ const stageLabels: Record<string, string> = {
 }
 
 export function HealthAutoExportImportPanel({
-  canSyncFromDrive = false,
-  onDriveSync,
   onImported,
 }: HealthAutoExportImportPanelProps) {
   const [result, setResult] = useState<HealthAutoExportImportResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isDriveSyncing, setIsDriveSyncing] = useState(false)
-  const [driveSyncMessage, setDriveSyncMessage] = useState('')
 
   const downloadUrl = useMemo(() => {
     if (!result) {
@@ -75,57 +62,18 @@ export function HealthAutoExportImportPanel({
     }
   }
 
-  const handleDriveSync = async () => {
-    if (!onDriveSync) {
-      return
-    }
-
-    setIsDriveSyncing(true)
-    setErrorMessage('')
-    setDriveSyncMessage('')
-
-    try {
-      const syncResult = await onDriveSync()
-      const failureNote =
-        syncResult.failedFiles > 0 ? ` / 確認が必要 ${syncResult.failedFiles}件` : ''
-      setDriveSyncMessage(
-        `Google Driveを確認しました。新規処理 ${syncResult.processedFiles}件 / 処理済み ${syncResult.skippedAlreadyProcessed}件${failureNote}`,
-      )
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Google Drive同期を実行できませんでした。')
-    } finally {
-      setIsDriveSyncing(false)
-    }
-  }
-
   return (
     <section className="hae-import-panel">
       <div className="panel">
         <h2>Health Auto Export JSONを手動確認する</h2>
         <p className="settings-copy">
-          通常はGoogle Drive同期で自動取り込みします。ここでは、任意のJSONファイルを選び、アプリ内で監査して使える睡眠データだけを正規化します。JSON原文は保存しません。
+          通常はローカル取り込みサーバーが自動取り込みします。ここでは、任意のJSONファイルを選び、アプリ内で監査して使える睡眠データだけを正規化します。JSON原文は保存しません。
         </p>
         <label className="file-drop">
           <span>JSONファイルを選択</span>
           <input accept="application/json,.json" onChange={handleFileChange} type="file" />
         </label>
-        {canSyncFromDrive && onDriveSync && (
-          <div className="drive-import-action">
-            <p className="settings-copy">
-              添付せずに、既定のGoogle Driveフォルダにある未処理のHealth Auto Export JSONを確認して取り込みます。
-            </p>
-            <button
-              className="secondary-button"
-              disabled={isDriveSyncing}
-              onClick={() => void handleDriveSync()}
-              type="button"
-            >
-              {isDriveSyncing ? 'Google Driveを確認中です' : 'Google Driveから未処理JSONを取り込む'}
-            </button>
-          </div>
-        )}
         {isLoading && <p className="file-status">監査と正規化を実行中です。</p>}
-        {driveSyncMessage && <p className="file-status">{driveSyncMessage}</p>}
         {errorMessage && <p className="import-error">{errorMessage}</p>}
       </div>
 

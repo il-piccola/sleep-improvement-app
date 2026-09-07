@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 
 export const defaultHealthImportConfig = {
   watchDir: 'K:\\マイドライブ\\Health Auto Export\\Sleep',
+  startupScanEnabled: false,
   serverPort: 8787,
   scanIntervalMs: 300_000,
   usePolling: true,
@@ -12,6 +13,7 @@ export const defaultHealthImportConfig = {
 
 const envKeys = {
   watchDir: 'HEALTH_EXPORT_WATCH_DIR',
+  startupScanEnabled: 'HEALTH_IMPORT_STARTUP_SCAN_ENABLED',
   serverPort: 'HEALTH_IMPORT_SERVER_PORT',
   scanIntervalMs: 'HEALTH_IMPORT_SCAN_INTERVAL_MS',
   usePolling: 'HEALTH_IMPORT_USE_POLLING',
@@ -32,6 +34,11 @@ export function loadHealthImportConfig({
 
   return {
     watchDir: getString(mergedEnv, envKeys.watchDir, defaultHealthImportConfig.watchDir),
+    startupScanEnabled: getBoolean(
+      mergedEnv,
+      envKeys.startupScanEnabled,
+      defaultHealthImportConfig.startupScanEnabled,
+    ),
     serverPort: getPositiveInteger(
       mergedEnv,
       envKeys.serverPort,
@@ -58,7 +65,7 @@ export function loadHealthImportConfig({
 
 export function toChokidarOptions(config) {
   return {
-    ignoreInitial: false,
+    ignoreInitial: !config.startupScanEnabled,
     usePolling: config.usePolling,
     interval: config.pollIntervalMs,
     awaitWriteFinish: {

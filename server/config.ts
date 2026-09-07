@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve } from 'node:path'
 export type HealthImportConfig = {
   watchDir: string
   watchEnabled: boolean
+  startupScanEnabled: boolean
   serverHost: '127.0.0.1'
   serverPort: number
   scanIntervalMs: number
@@ -18,6 +19,7 @@ export type HealthImportConfig = {
 export const defaultHealthImportConfig: HealthImportConfig = {
   watchDir: resolve(process.cwd(), 'health-auto-export', 'Sleep'),
   watchEnabled: true,
+  startupScanEnabled: false,
   serverHost: '127.0.0.1',
   serverPort: 8787,
   scanIntervalMs: 300_000,
@@ -32,6 +34,7 @@ export const defaultHealthImportConfig: HealthImportConfig = {
 const envKeys = {
   watchDir: 'HEALTH_EXPORT_WATCH_DIR',
   watchEnabled: 'HEALTH_IMPORT_WATCH_ENABLED',
+  startupScanEnabled: 'HEALTH_IMPORT_STARTUP_SCAN_ENABLED',
   serverPort: 'HEALTH_IMPORT_SERVER_PORT',
   scanIntervalMs: 'HEALTH_IMPORT_SCAN_INTERVAL_MS',
   usePolling: 'HEALTH_IMPORT_USE_POLLING',
@@ -80,6 +83,11 @@ export function loadHealthImportConfig(
       envKeys.watchEnabled,
       defaultHealthImportConfig.watchEnabled,
     ),
+    startupScanEnabled: getBoolean(
+      mergedEnv,
+      envKeys.startupScanEnabled,
+      defaultHealthImportConfig.startupScanEnabled,
+    ),
     serverHost: defaultHealthImportConfig.serverHost,
     serverPort: getPositiveInteger(
       mergedEnv,
@@ -110,7 +118,7 @@ export function loadHealthImportConfig(
 
 export function toChokidarOptions(config: HealthImportConfig) {
   return {
-    ignoreInitial: false,
+    ignoreInitial: !config.startupScanEnabled,
     usePolling: config.usePolling,
     interval: config.pollIntervalMs,
     awaitWriteFinish: {

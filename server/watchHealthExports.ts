@@ -100,7 +100,9 @@ export function createHealthExportWatcher(
     scanTimer = setInterval(() => {
       void scanDirectory(true)
     }, config.scanIntervalMs)
-    await scanDirectory(true)
+    if (config.startupScanEnabled) {
+      await scanDirectory(true)
+    }
   }
 
   async function stop() {

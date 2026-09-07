@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j BLOCKED（Sleep撤去完了、旧Mayaの扱いとBilling整理は別管理）**
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j BLOCKED（Sleep撤去完了、旧Mayaの扱いとBilling整理は別管理） / O-12k COMPLETE（Web Firebase完全分離）**
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -11,7 +11,7 @@ O-12e scope決定: [`o12e-preservation-scope-decision.md`](./o12e-preservation-s
 O-12e計画: [`o12e-existing-data-migration.md`](./o12e-existing-data-migration.md)  
 O-12e Firestore final-backup手順: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
 O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
-最終更新日: **2026-09-07**
+最終更新日: **2026-09-08**
 
 ## 1. 運用原則
 
@@ -19,7 +19,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 - Codex確認は安全にまとめられるtest/build/runtime checkを1回へ統合する。
 - 既知environment issueだけを理由に安全な後続確認を小分けにしない。
 - 一度PASSした項目を理由なく再確認しない。
-- Exit Gateは `O-12a → b → c → d → e → f → g → h → i → j` の順序を守る。
+- Exit Gateは `O-12a → b → c → d → e → f → g → h → i → j` の順序を守る。O-12kはWeb Firebase完全分離のpost-cutover corrective gateとして別途完了させる。
 - **O-12eはpreservation readiness、O-12hはCloud/local parity・recovery、O-12iはwrite freeze + final backup + local-only、O-12jは削除gateとして分離する。**
 - 現行Cloud取り込みが継続している間はFirestore final backupを取得しない。取得しても後続ingestで古くなるため。
 - final Firestore backupはO-12h完了後、O-12iでCloud writeを凍結しin-flight処理がないことを確認した直後に実行する。
@@ -43,6 +43,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 | O-12h | 並行検証・復旧試験 | **COMPLETE — local validation・recovery・Cloud/local同一期間parity PASS** |
 | O-12i | Cloud運用停止 + final preservation | **COMPLETE — write freeze・Firestore/local archive・local-only PASS** |
 | O-12j | Cloud完全撤去 | **BLOCKED — Sleep対象の撤去は完了。旧Mayaは復旧せず独立した新規作成へ分離し、旧サービスの扱いとBilling整理を別途確定する** |
+| O-12k | Web Firebase完全分離 | **COMPLETE — Web source/config/runtime分離、データ鮮度対策、production build・回帰テスト・lint・local/Tailscale proxy smoke PASS** |
 
 # O-12a — COMPLETE
 
@@ -282,6 +283,11 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 
 **O-12g Exit Gate: COMPLETE**
 
+補正注記:
+
+- O-12g COMPLETEは、local modeでFirebase Authを初期化しないruntime behavior gateとして有効。
+- Web source path、依存関係、設定、production bundleからFirebaseを排除するstatic Web gateは当時検証していないため、O-12kで補正する。
+
 # O-12h — COMPLETE
 
 実施済み:
@@ -369,6 +375,47 @@ O-12h完了後、Cloud自動取り込みを可逆停止した上で、Firestore�
 - `maya-daily-observation-console`サービス自体は停止・削除していない。停止・削除、Billing解除、プロジェクトshutdownは別作業として保留する
 - Billingの紐付け解除、`maya-daily-observation-console`の変更、プロジェクトshutdownは保留
 - ローカルのProcessed Data・Firestore/legacy保全アーカイブ・Git履歴は保持している
+
+# O-12k — COMPLETE
+
+## Web Firebase完全分離 — corrective gate
+
+O-12gで確認したのは、local modeでFirebase Authを初期化しないruntime behaviorだった。O-12kでは、Web source path、Web UI、build設定、production bundleからFirebase/Cloud API経路を除去し、local Webが同一オリジンのローカルAPIだけを使う状態へ補正する。
+
+O-12kの対象:
+
+- Web entry pathから`firebase`、`firebase/auth`、`@capacitor-firebase/authentication`のimportを除去する
+- Web Firebase認証UIとCloud API mode switchingを除去する
+- Web build設定からFirebase / Cloud APIの設定・credential参照を除去または分離する
+- Android Firebase authを、Web buildがimportしないAndroid-only boundaryへ分離する
+- legacy `cloud-api`は、Webから明確に分離され、local Web operationに不要な場合に限り保持する
+- package dependency graphとproduction bundleにFirebase SDKが含まれないことを確認する
+- `npm test`、build、lint、local/Tailscale smoke testを実施する
+
+実装・検証結果:
+
+- `src/App.tsx`からFirebase client/auth、Firebase UI、Cloud API分岐、Cloud timeline取得、Cloud Drive sync実行経路を除去
+- `src/lib/firebaseClient.ts`と`src/lib/appAuth.ts`を削除し、Web entry pathからFirebase importを排除
+- 手動取り込み画面からCloud API経由のGoogle Drive同期ボタンを除去。自動取り込みはlocal API経由に統一
+- rootの直接依存`firebase`と旧Firebase Hosting設定`firebase.json`を削除
+- Android用`@capacitor-firebase/authentication`と`capacitor.config.ts`は、Web buildがimportしないAndroid-only境界として保持
+- Web source Firebase/Cloud reference scan: **0件**
+- production bundle Firebase / Firestore / Capacitor Firebase / Firebase config / Cloud Run URL scan: **0件**
+- `npm run build`: **PASS**
+- `npm test`: **PASS**
+- 変更対象Web lint: **PASS**
+- local preview `200`、同一オリジン`/api/health-records` `200`、`/api/import-status` `200`: **PASS**
+- repository全体`npm run lint`: **PASS**
+- Tailscale Serve `https://leto.taile04360.ts.net/` Web `200`、同一オリジン`/api/health-records` `200`: **PASS**
+- `npm ls firebase`に残るFirebaseは、Android用`@capacitor-firebase/authentication`のoptional peerのみ。Web entry/build graphからは参照されない
+- corrective freshness follow-up: API responseへ`Cache-Control: no-store`を付与し、Web fetchも`cache: no-store`へ統一。サーバー起動時はraw JSONの件数・最終更新時刻とProcessed Dataを照合し、古いスナップショットを再公開する
+- latest-selection follow-up: `latestSummary`を入力配列の末尾ではなく`sleepDayKey`の降順で選択し、入力順に依存した古い睡眠日表示を防止
+- 実データ再検証: Drive同期フォルダは9/8更新、local APIは`processed_data`のsnapshot `20260907T205647Z-88fecc37`、2031レコード、最新レコード9/7 12:13（JST）を返すことを確認
+- corrective follow-up後の`npm test`、`npm run build`、`npm run lint`、Tailscale Web/API smoke: **PASS**
+
+O-12kでは、明示的な承認なしにAndroid Firebase authやlegacy `cloud-api`自体を削除・全面改修しない。
+
+**O-12k Exit Gate: COMPLETE**
 
 # Final Firestore backup timing
 

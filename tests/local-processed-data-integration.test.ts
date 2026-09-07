@@ -16,6 +16,7 @@ try {
   const config: HealthImportConfig = {
     watchDir: rawRoot,
     watchEnabled: false,
+    startupScanEnabled: false,
     serverHost: '127.0.0.1',
     serverPort: 0,
     scanIntervalMs: 60_000,
@@ -58,6 +59,7 @@ try {
   const watcherConfig: HealthImportConfig = {
     ...config,
     watchEnabled: true,
+    startupScanEnabled: true,
     dataDir: join(root, 'watcher-data'),
     processedDataDir: join(root, 'watcher-processed'),
   }
