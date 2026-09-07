@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j BLOCKED（共有資源への影響確認・復旧対応待ち）**
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j BLOCKED（Sleep撤去完了、旧Mayaの扱いとBilling整理は別管理）**
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -42,7 +42,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 | O-12g | Local Web + Tailscale | **COMPLETE — localhost・same-origin・Tailscale Serve・iPhone表示確認済み** |
 | O-12h | 並行検証・復旧試験 | **COMPLETE — local validation・recovery・Cloud/local同一期間parity PASS** |
 | O-12i | Cloud運用停止 + final preservation | **COMPLETE — write freeze・Firestore/local archive・local-only PASS** |
-| O-12j | Cloud完全撤去 | **BLOCKED — Sleep対象削除後に共有資源への影響が判明、復旧確認待ち** |
+| O-12j | Cloud完全撤去 | **BLOCKED — Sleep対象の撤去は完了。旧Mayaは復旧せず独立した新規作成へ分離し、旧サービスの扱いとBilling整理を別途確定する** |
 
 # O-12a — COMPLETE
 
@@ -56,7 +56,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 - GCP project/Billing/Cloud Run/Scheduler/Artifact Registry/Firestore/Secrets names/Storage/Hosting/APIs inventory
 - `maya-daily-observation-console`は用途不明non-Sleep-Compass candidateとしてinventory済み
 
-`maya-daily-observation-console`は停止・削除禁止。O-12j project shutdown判定前に用途再確認する。
+`maya-daily-observation-console`はO-12対象外。旧環境の復旧は行わず、新規作成するMaya環境へ分離する方針を確定した。旧サービスの停止・削除とBilling整理は、SleepアプリのO-12完了条件とは分離し、実施時に個別承認を得る。
 
 # O-12b — COMPLETE v1.0.0
 
@@ -340,6 +340,14 @@ O-12h完了後、Cloud自動取り込みを可逆停止した上で、Firestore�
 
 # O-12j — ACTIVE
 
+## 方針確定 — 旧Maya環境は復旧せず、新規作成へ分離
+
+- 旧MayaのArtifact Registryイメージ／Cloud Storageビルド成果物の復旧は行わない。
+- MayaはGitHub上のソースとGoogle Drive上の必要データを前提に、新しい専用環境として作成する。
+- 新MayaはSleep Compassの削除済み共有資源やFirestoreに依存させない。
+- O-12ではSleep関連resourceの撤去・local-only運用を完了対象とし、Maya新環境の実装・移行・公開は別作業として扱う。
+- 旧Maya Cloud Runサービスの停止・削除、Billing解除、プロジェクトshutdownは、別作業の明示的な承認後に実施する。
+
 削除前の最終read-only監査を実施した。O-12iの保全状態とCloud write freezeは維持している。
 
 監査結果:
@@ -356,10 +364,9 @@ O-12h完了後、Cloud自動取り込みを可逆停止した上で、Firestore�
 実施結果とブロッカー:
 
 - ユーザー承認後、Sleep対象のCloud Run 2サービス、Scheduler、Firestore `(default)`、Firebase Hostingサイトを削除した
-- Artifact Registry `cloud-run-source-deploy`も削除したが、同一リポジトリを`maya-daily-observation-console`が参照していたことが判明した
-- Cloud Storage `run-sources-sleep-improvement-cloud-asia-northeast1`も削除したが、同一バケットにSleep対象外の`maya-daily-observation-console`成果物が含まれていた
-- `maya-daily-observation-console`サービス自体は削除・停止していないが、参照イメージとビルド成果物が共有資源削除の影響を受けた可能性がある
-- Storage soft-deleted bucketのread-only照会では復元候補を取得できず、Artifact Registryも通常の復元機能はなく、Google Cloud Supportによるbest-effort復旧確認が必要
+- Artifact Registry `cloud-run-source-deploy`とCloud Storage `run-sources-sleep-improvement-cloud-asia-northeast1`はSleep対象と共有されていたため削除済み。旧Mayaのイメージ／ビルド成果物も影響を受けた可能性がある
+- 旧Mayaは復旧せず、新規専用環境として作り直す方針を確定したため、旧成果物の復元確認はO-12の後続条件から外す
+- `maya-daily-observation-console`サービス自体は停止・削除していない。停止・削除、Billing解除、プロジェクトshutdownは別作業として保留する
 - Billingの紐付け解除、`maya-daily-observation-console`の変更、プロジェクトshutdownは保留
 - ローカルのProcessed Data・Firestore/legacy保全アーカイブ・Git履歴は保持している
 
