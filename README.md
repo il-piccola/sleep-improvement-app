@@ -19,6 +19,24 @@ npm run dev:all
 
 Tailscale Serve forwards `https://leto.taile04360.ts.net/` to Web port `5173`, and the Web `/api` proxy forwards to the local API on port `8787`. If the `dev:all` process is stopped, the Tailscale page returns `502 Bad Gateway` and the browser may show `Load failed`.
 
+### Windows local runtime
+
+Register the local runtime to start at Windows logon:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-local-runtime-task.ps1 -StartNow
+```
+
+The task starts `scripts/run-local-runtime.ps1`. `dev:all` restarts the API or Web child process after an unexpected exit. Runtime logs are written to the ignored `runtime-logs` directory.
+
+Check Web availability, API availability, watcher state, and Processed Data freshness without printing health-data values:
+
+```powershell
+npm run runtime:check
+```
+
+The API health endpoint is available at `http://127.0.0.1:8787/api/healthz`. It reports `503` when the watcher is stopped, the raw Google Drive sync folder cannot be inspected, or the Processed Data snapshot is behind the raw JSON metadata.
+
 ## Android display app verification
 
 Sleep Compass is also packaged as a Capacitor Android display app. The Android app is a viewer for the existing Cloud Run / Firestore data flow; it does not collect Android health data directly.

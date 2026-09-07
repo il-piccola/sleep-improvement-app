@@ -413,6 +413,23 @@ O-12kの対象:
 - 実データ再検証: Drive同期フォルダは9/8更新、local APIは`processed_data`のsnapshot `20260907T205647Z-88fecc37`、2031レコード、最新レコード9/7 12:13（JST）を返すことを確認
 - corrective follow-up後の`npm test`、`npm run build`、`npm run lint`、Tailscale Web/API smoke: **PASS**
 
+## O-12k 運用安定化追補 — COMPLETE
+
+O-12kのWeb Firebase完全分離後、ローカル運用時の再起動耐性とデータ鮮度の可視化を追加する。O-12のCloud撤去判断やAndroid境界は変更しない。
+
+- Windowsログオン時に`Sleep Compass Local Runtime` Scheduled Taskで`dev:all`を起動
+- `dev:all`にAPI/Web子プロセスの無期限再起動（5秒待機）を設定
+- raw Google Drive同期フォルダのJSON件数・最新ファイル・最終更新時刻を60秒間隔で監視
+- `/api/health` / `/api/healthz`でwatcher状態、Processed Data鮮度、raw folder状態をhealth-data本文なしで確認
+- `npm run runtime:check`でWeb/API応答とProcessed Data鮮度を終了コード付きで確認
+- Scheduled Taskの登録・`StartNow`実行: **PASS**
+- APIプロセス強制停止後の自動復旧: 旧PIDから新PIDへ切替、`/api/healthz=200 healthy`: **PASS**
+- Webプロセス強制停止後の自動復旧: 旧PIDから新PIDへ切替、Web HTTP `200`: **PASS**
+- raw監視メタデータ: 118ファイル、最新`HealthAutoExport-2026-09-08.json`、Processed Data freshness=`fresh`: **PASS**
+- `npm run runtime:check`: **PASS**。`npm test`、`npm run build`、`npm run lint`: **PASS**
+
+**O-12k 運用安定化追補 Exit Gate: COMPLETE**。Windows再起動そのものは未実施だが、ログオン起動タスクの登録・即時起動とAPI/Web子プロセスの自動復旧を確認済み。
+
 O-12kでは、明示的な承認なしにAndroid Firebase authやlegacy `cloud-api`自体を削除・全面改修しない。
 
 **O-12k Exit Gate: COMPLETE**

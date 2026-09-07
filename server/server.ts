@@ -1,6 +1,4 @@
 import { createServer, type ServerResponse } from 'node:http'
-import { readdir, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
 import { loadHealthImportConfig } from './config.ts'
 import { loadHealthStore, loadHealthStoreWithStatus } from './healthStore.ts'
 import { createHealthExportWatcher } from './watchHealthExports.ts'
@@ -10,11 +8,19 @@ import {
   loadLatestProcessedData,
 } from './processedData.ts'
 import { publishLocalProcessedData } from './localProcessedData.ts'
+import {
+  assessProcessedDataFreshness,
+  inspectRawJsonFiles,
+  type RawJsonFilesStatus,
+} from './rawDataStatus.ts'
 
 const config = loadHealthImportConfig()
+let rawStatusCache: RawJsonFilesStatus | null = null
+let rawStatusError: string | null = null
+let publicationPromise: Promise<unknown> | null = null
 const watcher = createHealthExportWatcher(config, undefined, {
   onProcessedDataReady: async () => {
-    await publishLocalProcessedData(config)
+    await publishProcessedData()
   },
 })
 
@@ -37,6 +43,11 @@ if (config.watchEnabled) {
   }
 }
 
+const rawStatusTimer = setInterval(() => {
+  void refreshRawStatus()
+}, 60_000)
+void refreshRawStatus()
+
 const server = createServer(async (request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*')
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
@@ -50,6 +61,12 @@ const server = createServer(async (request, response) => {
 
   try {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
+
+    if (request.method === 'GET' && (url.pathname === '/api/health' || url.pathname === '/api/healthz')) {
+      const health = await buildRuntimeHealth()
+      sendJson(response, health, health.status === 'healthy' ? 200 : 503)
+      return
+    }
 
     if (request.method === 'GET' && url.pathname === '/api/health-records') {
       const processed = await loadLatestProcessedData(config.processedDataDir)
@@ -101,6 +118,8 @@ const server = createServer(async (request, response) => {
       const processed = await loadLatestProcessedData(config.processedDataDir)
       const store = await loadHealthStoreWithStatus(config.dataDir)
       const processedFiles = await loadProcessedFiles(config.dataDir, config.watchDir)
+      const raw = await getRawStatus()
+      const freshness = assessProcessedDataFreshness(raw, processed)
       sendJson(response, {
         ...watcher.status,
         watchEnabled: config.watchEnabled,
@@ -122,6 +141,12 @@ const server = createServer(async (request, response) => {
         processedDataSnapshotId: processed?.snapshotId ?? null,
         processedDataGeneratedAt: processed?.generatedAt ?? null,
         processedDataInputFileCount: processed?.inputFiles.length ?? 0,
+        rawFileCount: raw.fileCount,
+        latestRawFileName: raw.latestFileName,
+        latestRawFileModifiedAt: raw.latestModifiedAt,
+        rawStatusError,
+        processedDataFreshness: freshness.status,
+        processedDataStaleReason: freshness.reason,
       })
       return
     }
@@ -129,7 +154,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/rescan') {
       const status = await watcher.rescan()
       try {
-        const processedData = await publishLocalProcessedData(config)
+        const processedData = await publishProcessedData()
         sendJson(response, { ...status, processedData })
       } catch (error) {
         sendJson(
@@ -192,19 +217,24 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/drive-sync-status') {
       const processed = await loadLatestProcessedData(config.processedDataDir)
+      const raw = await getRawStatus()
+      const freshness = assessProcessedDataFreshness(raw, processed)
       sendJson(response, {
         lastSyncAt: processed?.generatedAt ?? null,
-        lastStatus: processed ? 'normal' : 'not_synced',
+        lastStatus: freshness.status === 'fresh' ? 'normal' : processed ? 'needs_attention' : 'not_synced',
         processedDriveFileCount: processed?.inputFiles.length ?? 0,
         latestBatchId: processed?.snapshotId ?? null,
-        latestFileName: processed?.latestImport?.importedFileName ?? null,
-        latestFileModifiedTime: processed?.generatedAt ?? null,
-        lastCheckedFiles: processed?.inputFiles.length ?? 0,
+        latestFileName: raw.latestFileName ?? processed?.latestImport?.importedFileName ?? null,
+        latestFileModifiedTime: raw.latestModifiedAt ?? processed?.generatedAt ?? null,
+        lastCheckedFiles: raw.fileCount,
         lastProcessedFiles: processed?.inputFiles.filter((file) => file.status === 'processed').length ?? 0,
         lastSkippedAlreadyProcessed: processed?.inputFiles.filter((file) => file.status === 'skipped').length ?? 0,
         lastFailedFiles: processed?.inputFiles.filter((file) => file.status === 'failed').length ?? 0,
         failedFiles: [],
         warningCount: processed?.warnings.length ?? 0,
+        processedDataFreshness: freshness.status,
+        processedDataStaleReason: freshness.reason,
+        rawStatusError,
       })
       return
     }
@@ -239,6 +269,7 @@ process.on('SIGTERM', () => {
 })
 
 async function shutdown() {
+  clearInterval(rawStatusTimer)
   await watcher.stop()
   server.close(() => {
     process.exit(0)
@@ -255,48 +286,74 @@ function sendJson(response: ServerResponse, body: unknown, status = 200) {
 
 async function reconcileProcessedData(): Promise<void> {
   const processed = await loadLatestProcessedData(config.processedDataDir).catch(() => null)
-  const raw = await inspectRawJsonFiles(config.watchDir)
+  const raw = await refreshRawStatus()
 
   if (!processed || raw.fileCount !== processed.inputFiles.length) {
-    await publishLocalProcessedData(config)
+    await publishProcessedData()
     return
   }
 
-  const processedLatestModifiedAt = Math.max(
-    ...processed.inputFiles
-      .map((file) => Date.parse(typeof file.modifiedAt === 'string' ? file.modifiedAt : ''))
-      .filter(Number.isFinite),
-    Number.NEGATIVE_INFINITY,
-  )
-  if (raw.latestModifiedAt > processedLatestModifiedAt) {
-    await publishLocalProcessedData(config)
+  const freshness = assessProcessedDataFreshness(raw, processed)
+  if (freshness.status === 'stale') {
+    await publishProcessedData()
   }
 }
 
-async function inspectRawJsonFiles(dir: string): Promise<{ fileCount: number; latestModifiedAt: number }> {
-  const files: string[] = []
-  await collectJsonFiles(resolve(dir), files)
-  let latestModifiedAt = Number.NEGATIVE_INFINITY
-
-  for (const file of files) {
-    const metadata = await stat(file)
-    if (metadata.mtimeMs > latestModifiedAt) {
-      latestModifiedAt = metadata.mtimeMs
-    }
+async function publishProcessedData(): Promise<unknown> {
+  if (!publicationPromise) {
+    publicationPromise = publishLocalProcessedData(config).finally(() => {
+      publicationPromise = null
+    })
   }
 
-  return { fileCount: files.length, latestModifiedAt }
+  return publicationPromise
 }
 
-async function collectJsonFiles(dir: string, files: string[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true })
+async function refreshRawStatus(): Promise<RawJsonFilesStatus> {
+  try {
+    rawStatusCache = await inspectRawJsonFiles(config.watchDir)
+    rawStatusError = null
+  } catch (error) {
+    rawStatusError = error instanceof Error ? error.message : String(error)
+  }
 
-  for (const entry of entries) {
-    const file = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      await collectJsonFiles(file, files)
-    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) {
-      files.push(file)
-    }
+  return rawStatusCache ?? {
+    fileCount: 0,
+    latestFileName: null,
+    latestModifiedAt: null,
+  }
+}
+
+async function getRawStatus(): Promise<RawJsonFilesStatus> {
+  return rawStatusCache ?? refreshRawStatus()
+}
+
+async function buildRuntimeHealth() {
+  const processed = await loadLatestProcessedData(config.processedDataDir).catch(() => null)
+  const raw = await getRawStatus()
+  const freshness = assessProcessedDataFreshness(raw, processed)
+  const watcherHealthy = !config.watchEnabled || (watcher.status.isWatching && !watcher.status.lastError)
+  const healthy = watcherHealthy && freshness.status === 'fresh'
+
+  return {
+    status: healthy ? 'healthy' : 'degraded',
+    checkedAt: new Date().toISOString(),
+    watcher: {
+      enabled: config.watchEnabled,
+      isWatching: watcher.status.isWatching,
+      lastScanAt: watcher.status.lastScanAt,
+      lastError: watcher.status.lastError,
+      rawStatusError,
+    },
+    data: {
+      source: processed ? 'processed_data' : 'legacy_health_store',
+      snapshotId: processed?.snapshotId ?? null,
+      processedDataGeneratedAt: processed?.generatedAt ?? null,
+      rawFileCount: raw.fileCount,
+      latestRawFileName: raw.latestFileName,
+      latestRawFileModifiedAt: raw.latestModifiedAt,
+      processedDataFreshness: freshness.status,
+      processedDataStaleReason: freshness.reason,
+    },
   }
 }
