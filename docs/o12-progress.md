@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j NOT STARTED**
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j ACTIVE（最終監査完了・削除承認待ち）**
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -42,7 +42,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 | O-12g | Local Web + Tailscale | **COMPLETE — localhost・same-origin・Tailscale Serve・iPhone表示確認済み** |
 | O-12h | 並行検証・復旧試験 | **COMPLETE — local validation・recovery・Cloud/local同一期間parity PASS** |
 | O-12i | Cloud運用停止 + final preservation | **COMPLETE — write freeze・Firestore/local archive・local-only PASS** |
-| O-12j | Cloud完全撤去 | **NOT STARTED** |
+| O-12j | Cloud完全撤去 | **ACTIVE — 最終read-only監査完了・破壊的操作の明示承認待ち** |
 
 # O-12a — COMPLETE
 
@@ -337,6 +337,23 @@ O-12h完了後、Cloud自動取り込みを可逆停止した上で、Firestore�
 - N100側の作業成果物は `.gitignore` 対象の `migration-input` に限定して保持し、tracked worktreeはclean
 
 **O-12i Exit Gate: COMPLETE**。Cloud write freeze、Firestore final preservation、N100/Drive integrity、local-only確認をすべてPASS。Firestore削除、Billing変更、project shutdownは実施していない。
+
+# O-12j — ACTIVE
+
+削除前の最終read-only監査を実施した。O-12iの保全状態とCloud write freezeは維持している。
+
+監査結果:
+
+- Cloud Run: `sleep-improvement-api`、`sleep-improvement-drive-sync-api`、`maya-daily-observation-console`の3サービス。前2者のみSleep Compass対象。`maya-daily-observation-console`は対象外候補のため削除・停止禁止
+- Firestore: `(default)` 1件、Standard / Firestore Native / `asia-northeast1`。O-12i最終保全済み
+- Cloud Scheduler: `sleep-drive-sync-daily` 1件、Paused
+- Artifact Registry: `cloud-run-source-deploy` 1件（`asia-northeast1`、約1.1 GB）
+- Cloud Storage: `run-sources-sleep-improvement-cloud-asia-northeast1` 1バケット。用途・保持要否を削除直前に再確認する
+- Firebase Hosting: `sleep-improvement-cloud`サイトが稼働中。`web.app` / `firebaseapp.com`の既定ドメインあり
+- Billing: Blaze（従量制）。Cloud Console表示の当期見込み課金額は0円
+- プロジェクト停止判定: `maya-daily-observation-console`が残るため、専用プロジェクトとは未確定。プロジェクトshutdownは保留
+
+Sleep Compass対象資源の削除、Billing無効化、プロジェクトshutdownは不可逆性があるため、明示承認を受けるまで実行しない。
 
 # Final Firestore backup timing
 
