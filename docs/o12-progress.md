@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立・final backupはO-12iへ遅延） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h ACTIVE（local validation PASS、Cloud comparison・recovery pending）**
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立・final backupはO-12iへ遅延） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS）**
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -11,7 +11,7 @@ O-12e scope決定: [`o12e-preservation-scope-decision.md`](./o12e-preservation-s
 O-12e計画: [`o12e-existing-data-migration.md`](./o12e-existing-data-migration.md)  
 O-12e Firestore final-backup手順: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
 O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
-最終更新日: **2026-09-01**
+最終更新日: **2026-09-07**
 
 ## 1. 運用原則
 
@@ -40,7 +40,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 | O-12e | 既存データ保全準備 | **COMPLETE — procedure ready / final backup deferred to O-12i** |
 | O-12f | Sleep Compass独立化 | **COMPLETE — Processed Data-backed local API parity / runtime validation PASS_WITH_ENVIRONMENT_EXCEPTION** |
 | O-12g | Local Web + Tailscale | **COMPLETE — localhost・same-origin・Tailscale Serve・iPhone表示確認済み** |
-| O-12h | 並行検証・復旧試験 | **ACTIVE — local validation PASS / Cloud comparison・recovery pending** |
+| O-12h | 並行検証・復旧試験 | **COMPLETE — local validation・recovery・Cloud/local同一期間parity PASS** |
 | O-12i | Cloud運用停止 + final preservation | **NOT STARTED** |
 | O-12j | Cloud完全撤去 | **NOT STARTED** |
 
@@ -294,19 +294,30 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 - clean-roomでの実raw再構築: 入力109件、失敗0件、可視レコード1838件
 - clean-room snapshotと稼働中snapshotのsleep-records SHA-256一致: **PASS**
 - Cloud API公開health endpoint: HTTP `200`
-- Cloud版データ診断のread-only比較: 同一期間の睡眠ブロック70件でLocalと一致
-- 同一期間の採用レコードはCloud385件 / Local389件。Cloud側の最新Driveファイルは2026-08-17、Local側Processed Dataは2026-08-30までを含むため、現時点では更新時点差による意図的差分として扱う
+- Cloud版データ診断のread-only比較（再スキャン後）: Cloudは日付範囲2026-08-04–2026-08-22、統合前後睡眠ブロック65件、採用レコード371件、重複除外0件、判断保留0件
+- 同一表示期間のLocalは睡眠ブロック66件 / 採用レコード375件。Cloudとの差分はLocal +1ブロック / +4レコードで、Cloud側の最新Driveファイルは2026-08-17、Local側の稼働中Processed Dataは2026-09-04までを含む。再スキャン後も同一cutoffのrecord-level parityは未確定
+- Cloud再スキャン後の診断表示: 最終同期09/05 11:35、確認が必要なファイル0件、処理済みDriveファイル102件、最新睡眠日2026-08-22
+- 追加承認後のCloud再取り込み: 新規処理0件 / 処理済み0件。最終同期表示は09/05 11:50へ更新されたが、処理済みファイル102件、Cloud 65ブロック / 371レコード、日付範囲2026-08-04–2026-08-22に変化なし
+- Google Driveのread-only folder metadata確認（旧状態）: `Health Auto Export/Sleep` はJSON 115件、最新更新2026-09-05T02:37:44Z。`HealthAutoExport-2026-08-27.json` の同名ファイルが2件ある。Cloud診断の102件・最新2026-08-17との不一致は、後続のフォルダ共有・再同期・同一期間比較で解消
+- Cloud実装のread-only確認: Drive一覧は全ページを取得し、正の `DRIVE_SYNC_MAX_FILES` が設定された場合だけ先頭件数に制限する設計。デプロイ時環境変数はrepositoryに保存されていないため、実Drive 115件とCloud処理済み102件の不一致は、Cloud Run側のfolder ID / 認証主体 / `DRIVE_SYNC_MAX_FILES` / Firestore処理済み台帳のいずれかをCloud metadataで確認する必要がある
+- Cloud Run環境変数のread-only確認（Console確認結果）: `HEALTH_EXPORT_DRIVE_FOLDER_ID` は実際にJSONが置かれている `Health Auto Export/Sleep` サブフォルダとは異なるIDを設定。`DRIVE_SYNC_MAX_FILES=10` も設定されている。実Drive 115件に対しCloud 102件・最新2026-08-17となる差分の主因を、参照フォルダ不一致 + 同期上限として特定。Cloud実装は指定フォルダ直下だけを一覧するため、親の `Health Auto Export` ではなく `Sleep` サブフォルダを指定する必要がある
+- Cloud Run環境変数を承認済み変更: `sleep-improvement-api` と `sleep-improvement-drive-sync-api` の両方を `Health Auto Export/Sleep` サブフォルダ + `DRIVE_SYNC_MAX_FILES=200` へ更新し、各サービスの新リビジョンへ100%トラフィックを切替
+- 設定変更直後のCloudアプリ再同期（旧状態）: 新規処理0件 / 処理済み0件。後続のサービスアカウント共有後同期で、処理済みDriveファイル112件から117件へ更新され、同一期間の詳細診断比較へ進行
+- 追加read-only確認: Webアプリは `https://sleep-improvement-api-xzf4y6uwjq-an.a.run.app` へ接続し、`/api/drive-sync` は200応答でCloud Runへ到達。Cloud Run実行主体は `sleep-drive-ingest@sleep-improvement-cloud.iam.gserviceaccount.com`。当初は実Driveの `Health Auto Export/Sleep` フォルダ権限が所有者 `il.piccola.fleuriste@gmail.com` のみで、サービスアカウント共有がなく列挙権限未付与だった
+- ユーザー承認のもと、認証済みGoogle Drive UIから `Health Auto Export/Sleep` フォルダを `sleep-drive-ingest@sleep-improvement-cloud.iam.gserviceaccount.com` に閲覧者として共有（通知なし）。共有ダイアログのアクセス一覧でサービスアカウントと「閲覧者」を確認
+- サービスアカウント共有後のCloudアプリ手動取り込み: 同期完了。後続の詳細診断は最終同期09/07 12:55、確認が必要なファイル0件、処理済みDriveファイル117件、最新データ日2026-09-06を表示。通常表示の96件は当日表示用の集計であり、同一期間比較は詳細診断の113ブロック・635採用レコードを使用
+- Cloud/local同一期間の詳細診断比較: Cloudの統合後ブロック113件・採用レコード635件・総睡眠239時間39分・重複除外0件・判断保留0件に対し、Localも同一期間（2026-08-06–2026-09-06）でブロック113件・統合採用レコード635件・総睡眠14379分（239時間39分）・重複除外0件・判断保留0件。record-level parity: **PASS**
+- Localの同期間入力レコード645件と採用レコード635件の差10件は、統合タイムラインで採用対象外となったレコードであり、Cloudの採用レコード635件と一致することを確認。意図的差分レビュー: **PASS**
 - Processed Data-onlyサーバー再起動復旧: 同一snapshot ID・可視レコード1838件・API HTTP `200`を確認
+- その後のlocal watcher再公開もread-onlyで確認: 稼働中snapshotは20260905T024310Z-46c28073、入力115ファイル、全体1971レコード / 367ブロック、最新データ日2026-09-04。Cloud比較対象期間の件数は66ブロック / 375レコードで不変
+- Cloud診断の旧表示（処理済みDriveファイル102件・最新Driveファイル2026-08-17）は、フォルダ権限付与前の状態。権限付与後にCloud側の最新状態を再取得し、同一期間の詳細診断でLocalと一致することを確認
 
-未実施:
+参考制約:
 
-- Cloud/localの実データ比較と意図的差分レビュー
-- Cloud稼働中の新規データ反映・重複排除の実運用比較
-- Cloud/localを同一cutoffに揃えたrecord-level parityの確定
-- Cloudの保護されたview endpointの直接呼出しは認証なしでHTTP `401`。認証済みCloud UIのread-only診断は確認済み
-- Firebase認証済みCloud UIでの比較は実施済み。ただしCloudとLocalの同一cutoffによるrecord-level parityは未確定
+- Cloudの保護されたview endpointの直接呼出しは認証なしでHTTP `401`。認証済みCloud UIのread-only診断で必要な比較を実施
+- Firebase認証済みCloud UIでの比較を実施
 
-O-12hではCloud operationを停止せず、上記比較・復旧を完了してからO-12iのwrite freezeへ進む。
+**O-12h Exit Gate: COMPLETE**。Cloud operationは停止せず、parity・新規データ反映・重複排除・restart・clean-room recoveryを確認済み。次はO-12iのwrite freezeへ進む。
 
 # Final Firestore backup timing
 
