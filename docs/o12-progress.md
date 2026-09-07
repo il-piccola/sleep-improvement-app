@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立・final backupはO-12iへ遅延） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS）**
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j NOT STARTED**
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -37,11 +37,11 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 | O-12b | Processed Data Contract | **COMPLETE — v1.0.0** |
 | O-12c | Processor独立化 | **COMPLETE** |
 | O-12d | Processor堅牢化 | **COMPLETE** |
-| O-12e | 既存データ保全準備 | **COMPLETE — procedure ready / final backup deferred to O-12i** |
+| O-12e | 既存データ保全準備 | **COMPLETE — procedure ready** |
 | O-12f | Sleep Compass独立化 | **COMPLETE — Processed Data-backed local API parity / runtime validation PASS_WITH_ENVIRONMENT_EXCEPTION** |
 | O-12g | Local Web + Tailscale | **COMPLETE — localhost・same-origin・Tailscale Serve・iPhone表示確認済み** |
 | O-12h | 並行検証・復旧試験 | **COMPLETE — local validation・recovery・Cloud/local同一期間parity PASS** |
-| O-12i | Cloud運用停止 + final preservation | **NOT STARTED** |
+| O-12i | Cloud運用停止 + final preservation | **COMPLETE — write freeze・Firestore/local archive・local-only PASS** |
 | O-12j | Cloud完全撤去 | **NOT STARTED** |
 
 # O-12a — COMPLETE
@@ -282,7 +282,7 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 
 **O-12g Exit Gate: COMPLETE**
 
-# O-12h — ACTIVE
+# O-12h — COMPLETE
 
 実施済み:
 
@@ -319,9 +319,28 @@ O-12fではまだCloud operationを止めない。現行Cloud版を比較対象�
 
 **O-12h Exit Gate: COMPLETE**。Cloud operationは停止せず、parity・新規データ反映・重複排除・restart・clean-room recoveryを確認済み。次はO-12iのwrite freezeへ進む。
 
+# O-12i — COMPLETE
+
+O-12h完了後、Cloud自動取り込みを可逆停止した上で、Firestoreの最終保全とlocal-only運用確認を実施した。
+
+実施結果:
+
+- Cloud Scheduler `sleep-drive-sync-daily`: **Paused**。manual sync / ingestは実行せず、write freezeを維持
+- Firestore edition / mode / location: Standard / Firestore Native / `asia-northeast1`
+- read-only collector: **PASS**。Firestore writes / updates / deletes: **0**
+- private Firestore archive counts: `sleep_records` 3028、`health_metric_records` 1383、`processed_drive_files` 119、`drive_sync_runs` 131、`ingest_batches` 354、`metric_audit_summaries` 81
+- Firestore archive ZIP: N100 `migration-input`へ保存、6 categoryのJSONL存在・非空行数・byteLength・SHA-256を検証して **integrity=PASS**
+- Firestore archive ZIP SHA-256: `f5395a5f6969cf5fa8ac695fc3fe4359be15a3dd5c46eeab6221f4b7dbc0437c`
+- Google Drive `Health Auto Export/Processed Data Backup/firestore-archives`へ原本ZIPを追加保存。Drive metadataのサイズ一致と再取得SHA-256一致を確認
+- local legacy state: `health-store.json` / `processed-files.json` を本文表示せずprivate ZIP化し、同じDrive保全先へ保存。ZIP SHA-256一致を確認
+- local-only verification: `dataSource=processed_data`、snapshot取得成功、lastErrorなし、local drive sync status正常。Cloud syncの再実行・Firestore本文readは行っていない
+- N100側の作業成果物は `.gitignore` 対象の `migration-input` に限定して保持し、tracked worktreeはclean
+
+**O-12i Exit Gate: COMPLETE**。Cloud write freeze、Firestore final preservation、N100/Drive integrity、local-only確認をすべてPASS。Firestore削除、Billing変更、project shutdownは実施していない。
+
 # Final Firestore backup timing
 
-実行は **O-12i**。
+実行済み。最終保全は **O-12i** で完了し、削除判断は **O-12j** に分離する。
 
 順序:
 
