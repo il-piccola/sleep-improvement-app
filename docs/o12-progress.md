@@ -1,6 +1,6 @@
 # O-12 作業進捗管理
 
-状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j ACTIVE（最終監査完了・削除承認待ち）**
+状態: **O-12a COMPLETE / O-12b COMPLETE / O-12c COMPLETE / O-12d COMPLETE / O-12e COMPLETE（preservation手順確立） / O-12f COMPLETE（local API parity・runtime validation完了、tsx起動は環境例外） / O-12g COMPLETE（Local Web・Tailscale・実機表示確認済み） / O-12h COMPLETE（local validation・recovery・Cloud/local同一期間parity PASS） / O-12i COMPLETE（write freeze・Firestore final preservation・local-only確認 PASS） / O-12j BLOCKED（共有資源への影響確認・復旧対応待ち）**
 基準文書: [`o12-local-first-cloud-exit-plan.md`](./o12-local-first-cloud-exit-plan.md)  
 Processed Data Contract: [`o12-processed-data-contract.md`](./o12-processed-data-contract.md)  
 JSON Schema: [`o12-processed-data-schema.json`](./o12-processed-data-schema.json)  
@@ -42,7 +42,7 @@ O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100
 | O-12g | Local Web + Tailscale | **COMPLETE — localhost・same-origin・Tailscale Serve・iPhone表示確認済み** |
 | O-12h | 並行検証・復旧試験 | **COMPLETE — local validation・recovery・Cloud/local同一期間parity PASS** |
 | O-12i | Cloud運用停止 + final preservation | **COMPLETE — write freeze・Firestore/local archive・local-only PASS** |
-| O-12j | Cloud完全撤去 | **ACTIVE — 最終read-only監査完了・破壊的操作の明示承認待ち** |
+| O-12j | Cloud完全撤去 | **BLOCKED — Sleep対象削除後に共有資源への影響が判明、復旧確認待ち** |
 
 # O-12a — COMPLETE
 
@@ -353,7 +353,15 @@ O-12h完了後、Cloud自動取り込みを可逆停止した上で、Firestore�
 - Billing: Blaze（従量制）。Cloud Console表示の当期見込み課金額は0円
 - プロジェクト停止判定: `maya-daily-observation-console`が残るため、専用プロジェクトとは未確定。プロジェクトshutdownは保留
 
-Sleep Compass対象資源の削除、Billing無効化、プロジェクトshutdownは不可逆性があるため、明示承認を受けるまで実行しない。
+実施結果とブロッカー:
+
+- ユーザー承認後、Sleep対象のCloud Run 2サービス、Scheduler、Firestore `(default)`、Firebase Hostingサイトを削除した
+- Artifact Registry `cloud-run-source-deploy`も削除したが、同一リポジトリを`maya-daily-observation-console`が参照していたことが判明した
+- Cloud Storage `run-sources-sleep-improvement-cloud-asia-northeast1`も削除したが、同一バケットにSleep対象外の`maya-daily-observation-console`成果物が含まれていた
+- `maya-daily-observation-console`サービス自体は削除・停止していないが、参照イメージとビルド成果物が共有資源削除の影響を受けた可能性がある
+- Storage soft-deleted bucketのread-only照会では復元候補を取得できず、Artifact Registryも通常の復元機能はなく、Google Cloud Supportによるbest-effort復旧確認が必要
+- Billingの紐付け解除、`maya-daily-observation-console`の変更、プロジェクトshutdownは保留
+- ローカルのProcessed Data・Firestore/legacy保全アーカイブ・Git履歴は保持している
 
 # Final Firestore backup timing
 
