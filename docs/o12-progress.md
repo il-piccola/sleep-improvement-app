@@ -11,7 +11,7 @@ O-12e scope決定: [`o12e-preservation-scope-decision.md`](./o12e-preservation-s
 O-12e計画: [`o12e-existing-data-migration.md`](./o12e-existing-data-migration.md)  
 O-12e Firestore final-backup手順: [`o12e-firestore-evidence-runbook.md`](./o12e-firestore-evidence-runbook.md)  
 O-12e N100 integrity手順: [`o12e-n100-final-migration-runbook.md`](./o12e-n100-final-migration-runbook.md)  
-最終更新日: **2026-09-08**
+最終更新日: **2026-09-09**
 
 ## 1. 運用原則
 
@@ -426,7 +426,17 @@ O-12kのWeb Firebase完全分離後、ローカル運用時の再起動耐性と
 - APIプロセス強制停止後の自動復旧: 旧PIDから新PIDへ切替、`/api/healthz=200 healthy`: **PASS**
 - Webプロセス強制停止後の自動復旧: 旧PIDから新PIDへ切替、Web HTTP `200`: **PASS**
 - raw監視メタデータ: 118ファイル、最新`HealthAutoExport-2026-09-08.json`、Processed Data freshness=`fresh`: **PASS**
+- 9/9 raw file未反映事象を検証: raw folderには119ファイル（最新`HealthAutoExport-2026-09-09.json`）が存在し、旧実装では全119 JSONの同期再生成中にAPIイベントループが塞がって一時的にLoad failedとなる原因を特定
+- Processed Data再生成をAPIプロセス内処理から`tsx processor/runDirectory.ts`子プロセスへ分離。再生成中もAPI/Webが応答できる構成へ修正
+- 修正後のsnapshot `20260909T084330Z-db00d8bb`: 9/8・9/9ファイルとも`processed`、`/api/healthz=healthy`、Processed Data freshness=`fresh`: **PASS**
 - `npm run runtime:check`: **PASS**。`npm test`、`npm run build`、`npm run lint`: **PASS**
+
+## O-12k 2026-09-09 freshness incident follow-up — COMPLETE
+
+- 事象: raw folderの9/9データは存在したが、119 JSONの全体再生成がAPI Nodeプロセスと同一イベントループで走り、処理中のAPIがタイムアウトしてWebが`Load failed`を表示
+- 原因: `publishLocalProcessedData()`がProcessorをサーバー内で直接実行していた
+- 修正: Processor snapshot生成を独立したNode/tsx子プロセスで実行し、APIイベントループをブロックしないよう変更
+- 検証: 9/9ファイルを含む最新snapshot生成、9/8・9/9の`processed`状態、API `healthy/fresh`、build、local runtime testを確認
 
 **O-12k 運用安定化追補 Exit Gate: COMPLETE**。Windows再起動そのものは未実施だが、ログオン起動タスクの登録・即時起動とAPI/Web子プロセスの自動復旧を確認済み。
 
