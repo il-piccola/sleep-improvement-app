@@ -8,6 +8,7 @@ The Web application is local-first and does not use Firebase, Firebase Authentic
 
 For the scheduled Google Drive sync setup, see [O-10 Drive Auto Sync](docs/o10-drive-auto-sync.md).
 For the consolidated data import and sleep source settings screen, see [O-11 Data Import Screen Consolidation](docs/o11-data-import-screen-consolidation.md).
+For Tailscale URL coexistence and future URL changes, see [O-14 Tailscale URL Coexistence](docs/o14-tailscale-url-coexistence.md).
 
 ## Local Web operation
 
@@ -17,7 +18,15 @@ Start the Web application and its local API together before opening the Tailscal
 npm run dev:all
 ```
 
-Tailscale Serve forwards `https://leto.taile04360.ts.net/` to Web port `5173`, and the Web `/api` proxy forwards to the local API on port `8787`. If the `dev:all` process is stopped, the Tailscale page returns `502 Bad Gateway` and the browser may show `Load failed`.
+Tailscale Serve forwards `https://leto.taile04360.ts.net:8443/` to Web port `5173`, and the Web `/api` proxy forwards to the local API on port `8787`. If the `dev:all` process is stopped, the Tailscale page returns `502 Bad Gateway` and the browser may show `Load failed`.
+
+Configure the Sleep Compass endpoint with:
+
+```powershell
+tailscale serve --bg --https=8443 http://127.0.0.1:5173
+```
+
+The default HTTPS endpoint, `https://leto.taile04360.ts.net/`, serves Moonlight Bamboo!! on port `4173`. Keep that mapping when configuring Sleep Compass. Both endpoints are accessible only within the tailnet. Browser preferences stored under the previous URL need to be configured again at the new URL; server-side sleep data is shared with the existing local runtime.
 
 ### Windows local runtime
 
