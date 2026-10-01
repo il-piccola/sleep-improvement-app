@@ -22,6 +22,7 @@ Safari → Cloudflare Access → Worker → VPC Service → Tunnel → 本番Web
 | 項目 | 現行値 |
 | --- | --- |
 | N100の作業ツリー | `C:\Users\ilpic\sleep-improvement-app` |
+| 保存済みの実装revision | `509dd4da091eba4a8a726eb0c0aba7895e7be017`（再開時は`origin/master`の後続更新も確認） |
 | raw監視先 | `L:\マイドライブ\Health Auto Export\Sleep` |
 | ローカル状態 | `server-data/`（`health-store.json`、`processed-files.json`と各`.bak`） |
 | 完成データ | `processed-data/snapshots/` |
@@ -44,7 +45,11 @@ Safariから認証後のアプリ表示を利用者が確認済み。未認証�
 
 ## 保全対象
 
-現在のHEADは`4e07696bac976815d48e641671f1a5971d0a46dd`だが、Cloudflare経路、画面別取得、増分Processorなどに未コミットの変更・新規ファイルがある。**HEADだけのcloneやgit archiveでは現行アプリを再現できない。** 再開時に`git status --short`を取得し、最新の作業ツリーを含む非公開バックアップまたはレビュー済みのコミットでソースを保全する。今回の準備では既存変更をコミットしていない。
+準備開始時はHEADが`4e07696bac976815d48e641671f1a5971d0a46dd`で、Cloudflare経路、画面別取得、増分Processorなどに未コミットの変更があった。その後、利用者のcommit・push依頼により、印刷機能・増分処理・Cloudflare経路・Mac引き継ぎ書とひな形を`509dd4da091eba4a8a726eb0c0aba7895e7be017`に保存した。ソースは`origin/master`から復元できる。Macでは最新の`origin/master`を取得し、旧revisionだけから移行を始めない。
+
+再開時には再度`git status --short`を確認し、その時点の追加変更があれば作業ツリーを含む非公開バックアップまたはレビュー済みコミットで保全する。Gitから復元できるのはソース・公開用設定ひな形であり、raw JSON・Processed Data・ローカル状態・秘密情報は下表の別途保全・移送が必要。
+
+保存前のWindows確認では`npm test`、`npm run lint`、`npm run build`がすべて成功した。Macでの実行・LaunchAgent起動は未検証。push対象は実トークンの混入と秘密情報形式を確認し、ローカル設定・実データがGit除外されていることを確認した。
 
 | 対象 | 扱い |
 | --- | --- |
