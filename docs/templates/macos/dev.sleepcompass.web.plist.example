@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.sleepcompass.web</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE_PATH__</string>
+    <string>__PROJECT_DIR__/scripts/serve-production-web.mjs</string>
+  </array>
+  <key>WorkingDirectory</key><string>__PROJECT_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HEALTH_IMPORT_SERVER_PORT</key><string>8787</string>
+    <key>SLEEP_COMPASS_WEB_PORT</key><string>5180</string>
+    <key>SLEEP_COMPASS_WEB_DIST_DIR</key><string>__PROJECT_DIR__/dist</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>__PROJECT_DIR__/runtime-logs/mac-web.log</string>
+  <key>StandardErrorPath</key><string>__PROJECT_DIR__/runtime-logs/mac-web-error.log</string>
+</dict>
+</plist>

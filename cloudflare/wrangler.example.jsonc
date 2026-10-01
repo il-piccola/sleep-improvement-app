@@ -1,0 +1,16 @@
+{
+  "name": "sleep-compass-private",
+  "main": "./worker.mjs",
+  "compatibility_date": "2026-09-30",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "ALLOWED_EMAIL": "<YOUR_CLOUDFLARE_ACCOUNT_EMAIL>"
+  },
+  "vpc_services": [
+    {
+      "binding": "SLEEP_WEB",
+      "service_id": "<VPC_SERVICE_ID>"
+    }
+  ]
+}

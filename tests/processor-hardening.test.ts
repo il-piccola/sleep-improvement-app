@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadHealthImportConfig } from '../server/config.ts'
@@ -38,6 +39,7 @@ try {
   await testStandaloneWatcherRescan()
   await testImmutableSnapshotPublication()
   await testDirectoryProcessorEndToEnd()
+  await testIncrementalProcessorCache()
   console.log('processor hardening tests passed')
 } finally {
   await rm(root, { recursive: true, force: true })
@@ -257,6 +259,190 @@ async function testDirectoryProcessorEndToEnd(): Promise<void> {
   assert.equal(snapshotText.includes(rawRoot), false)
   assert.equal(snapshotText.includes('Health Auto Export\\'), false)
   assert.equal(snapshotText.includes('Health Auto Export/'), false)
+}
+
+async function testIncrementalProcessorCache(): Promise<void> {
+  const rawRoot = join(root, 'raw-incremental-cache')
+  const processedDataRoot = join(root, 'processed-incremental-cache')
+  const cacheRoot = join(root, 'processor-cache')
+  const firstPath = join(rawRoot, 'sleep.json')
+  const secondPath = join(rawRoot, 'nested', 'sleep-corrected.json')
+  await mkdir(join(rawRoot, 'nested'), { recursive: true })
+  await writeFile(firstPath, JSON.stringify(createSyntheticInput()), 'utf8')
+
+  const first = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0001',
+  })
+  assert.equal(first.cacheHitCount, 0)
+  assert.equal(first.cacheMissCount, 1)
+  assert.equal(first.cacheCorruptionCount, 0)
+
+  const second = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0002',
+  })
+  assert.equal(second.cacheHitCount, 1)
+  assert.equal(second.cacheMissCount, 0)
+  assert.equal(await readSnapshotDatasets(first.published.snapshotDir), await readSnapshotDatasets(second.published.snapshotDir))
+
+  await writeFile(secondPath, JSON.stringify(createSyntheticInput()), 'utf8')
+  const added = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0003',
+  })
+  assert.equal(added.cacheHitCount, 1)
+  assert.equal(added.cacheMissCount, 1)
+  assert.equal(added.inputFileCount, 2)
+
+  await rm(firstPath)
+  const deleted = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0004',
+  })
+  assert.equal(deleted.cacheHitCount, 1)
+  assert.equal(deleted.cacheMissCount, 0)
+  assert.equal(deleted.inputFileCount, 1)
+  assert.equal((await readdir(join(cacheRoot, 'entries'))).filter((file) => file.endsWith('.json')).length, 1)
+
+  const correctedInput = createSyntheticInput() as {
+    metrics: Array<{ data: Array<Record<string, unknown>> }>
+  }
+  correctedInput.metrics[0].data[0].startDate = '2026-08-23T22:30:00+09:00'
+  await writeFile(secondPath, JSON.stringify(correctedInput), 'utf8')
+  const corrected = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0005',
+  })
+  assert.equal(corrected.cacheHitCount, 0)
+  assert.equal(corrected.cacheMissCount, 1)
+  assert.equal(corrected.sleepRecordCount, 2)
+  assert.match(
+    await readSnapshotDatasets(corrected.published.snapshotDir),
+    /2026-08-23T22:30:00\+09:00/,
+  )
+
+  const correctedAgain = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0005b',
+  })
+  assert.equal(correctedAgain.cacheHitCount, 1)
+  assert.equal(correctedAgain.cacheMissCount, 0)
+
+  const sameMetadata = await stat(secondPath)
+  const sameSizeCorrection = createSyntheticInput() as {
+    metrics: Array<{ data: Array<Record<string, unknown>> }>
+  }
+  sameSizeCorrection.metrics[0].data[0].value = 'Deep'
+  await writeFile(secondPath, JSON.stringify(sameSizeCorrection), 'utf8')
+  await utimes(secondPath, sameMetadata.atime, sameMetadata.mtime)
+  const metadataValidated = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0005c',
+  })
+  assert.equal(metadataValidated.cacheHitCount, 0)
+  assert.equal(metadataValidated.cacheMissCount, 1)
+
+  const shaValidated = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    cacheValidation: 'sha256',
+    snapshotId: '20260824T000000Z-cache0005d',
+  })
+  assert.equal(shaValidated.cacheHitCount, 1)
+  assert.equal(shaValidated.cacheMissCount, 0)
+
+  const cacheEntries = await readdir(join(cacheRoot, 'entries'))
+  const correctedKey = createHash('sha256').update('nested/sleep-corrected.json').digest('hex')
+  const cacheEntry = cacheEntries.find((file) => file === `entry-${correctedKey}.json`)
+  assert.ok(cacheEntry)
+  await writeFile(join(cacheRoot, 'entries', cacheEntry!), '{broken', 'utf8')
+  const recovered = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot,
+    cacheRoot,
+    snapshotId: '20260824T000000Z-cache0006',
+  })
+  assert.equal(recovered.cacheHitCount, 0)
+  assert.equal(recovered.cacheMissCount, 1)
+  assert.equal(recovered.cacheCorruptionCount, 1)
+  await validateCompletedSnapshot(recovered.published.snapshotDir)
+
+  const disabledCacheRoot = join(root, 'processor-cache-disabled')
+  const disabledFirst = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot: join(root, 'processed-cache-disabled'),
+    cacheRoot: disabledCacheRoot,
+    cacheEnabled: false,
+    snapshotId: '20260824T000000Z-cache0007',
+  })
+  const disabledSecond = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot: join(root, 'processed-cache-disabled'),
+    cacheRoot: disabledCacheRoot,
+    cacheEnabled: false,
+    snapshotId: '20260824T000000Z-cache0008',
+  })
+  assert.equal(disabledFirst.cacheMissCount, 1)
+  assert.equal(disabledSecond.cacheMissCount, 1)
+  await assert.rejects(() => stat(disabledCacheRoot), /ENOENT/)
+
+  const lockedProcessedRoot = join(root, 'processed-cache-lock')
+  const concurrent = await Promise.allSettled([
+    processHealthExportDirectory({
+      rawRoot,
+      processedDataRoot: lockedProcessedRoot,
+      cacheEnabled: false,
+      snapshotId: '20260824T000000Z-cache-lock-a',
+    }),
+    processHealthExportDirectory({
+      rawRoot,
+      processedDataRoot: lockedProcessedRoot,
+      cacheEnabled: false,
+      snapshotId: '20260824T000000Z-cache-lock-b',
+    }),
+  ])
+  assert.equal(concurrent.filter((result) => result.status === 'fulfilled').length, 1)
+  const rejected = concurrent.find((result) => result.status === 'rejected')
+  assert.ok(rejected && rejected.status === 'rejected')
+  assert.match(String(rejected.reason), /already running/)
+
+  const afterLockRelease = await processHealthExportDirectory({
+    rawRoot,
+    processedDataRoot: lockedProcessedRoot,
+    cacheEnabled: false,
+    snapshotId: '20260824T000000Z-cache-lock-c',
+  })
+  assert.equal(afterLockRelease.inputFileCount, 1)
+}
+
+async function readSnapshotDatasets(snapshotDir: string): Promise<string> {
+  const files = [
+    'input-files.jsonl',
+    'sleep-records.jsonl',
+    'sleep-blocks.jsonl',
+    'sleep-days.jsonl',
+    'source-summaries.jsonl',
+    'overlaps.jsonl',
+    'health-metrics.jsonl',
+    'diagnostics.json',
+  ]
+  return (await Promise.all(files.map((file) => readFile(join(snapshotDir, file), 'utf8')))).join('\n')
 }
 
 function createSyntheticInput(): unknown {

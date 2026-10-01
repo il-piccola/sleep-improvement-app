@@ -43,8 +43,20 @@ export async function inspectRawJsonFiles(dir: string): Promise<RawJsonFilesStat
 export function assessProcessedDataFreshness(
   raw: RawJsonFilesStatus,
   processed: ProcessedDataRuntime | null,
+  rawStatusError: string | null = null,
 ): ProcessedDataFreshness {
   const processedLatestModifiedAt = getLatestProcessedInputModifiedAt(processed)
+
+  if (rawStatusError) {
+    return {
+      status: 'stale',
+      reason: 'raw_status_unavailable',
+      rawFileCount: raw.fileCount,
+      processedFileCount: processed?.inputFiles.length ?? 0,
+      rawLatestModifiedAt: raw.latestModifiedAt,
+      processedLatestModifiedAt,
+    }
+  }
 
   if (raw.fileCount === 0) {
     return {

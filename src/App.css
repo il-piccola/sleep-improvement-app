@@ -3816,3 +3816,32 @@
     width: 100%;
   }
 }
+/* O-13 print preview */
+.print-preview-screen { min-height: 100vh; padding: 24px; background: #eef1f5; }
+.print-preview-controls { display: flex; align-items: center; gap: 12px; max-width: 960px; margin: 0 auto 20px; }
+.print-preview-controls h1 { flex: 1; font-size: 1.3rem; margin: 0; }
+.print-mode-toggle { display: flex; gap: 4px; }
+.print-mode-toggle button.selected { background: #243b53; color: white; }
+.print-report { max-width: 840px; margin: auto; padding: 32px; background: white; box-shadow: 0 5px 24px #22304422; color: #17202a; }
+.print-report-header { border-bottom: 2px solid #17202a; padding-bottom: 16px; margin-bottom: 20px; position: relative; }
+.print-report-header h1 { margin: 0 0 12px; }
+.print-report-header dl { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 0; }
+.print-report-header dl div { display: flex; gap: 6px; }
+.print-report-header dt { font-weight: 700; }.print-report-header dd { margin: 0; }
+.print-disclaimer { font-size: .8rem; margin: 14px 0 0; }
+.print-day-card { border: 1px solid #9aa7b2; padding: 16px; margin: 0 0 18px; break-inside: avoid; }
+.print-day-title { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #c1c9d0; }.print-day-title h2 { margin: 0 0 8px; }
+.print-metrics { display: flex; flex-wrap: wrap; gap: 18px; margin: 12px 0; }.print-metrics span { border-left: 3px solid #536d82; padding-left: 8px; }.print-metrics b { display: block; }
+.print-timeline-scale { display: flex; justify-content: space-between; font-size: .72rem; }.print-timeline-track { height: 34px; border: 1px solid #667; position: relative; margin-top: 4px; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(25% - 1px), #ccd3d9 calc(25% - 1px), #ccd3d9 25%); }
+.print-timeline-block { position: absolute; top: 3px; bottom: 3px; min-width: 8px; border: 2px solid #253b53; background: #d4e0ea; overflow: hidden; }
+.print-stage-strip { position: absolute; inset: 0; }.print-stage-strip i { position: absolute; top: 0; bottom: 0; border-right: 1px solid #fff; }.print-stage-asleep_rem { background-color: #8b5cf6; background-image: repeating-linear-gradient(135deg, #ffffffaa 0 2px, transparent 2px 6px); }.print-stage-asleep_core { background-color: #38a169; background-image: repeating-linear-gradient(0deg, #ffffffaa 0 2px, transparent 2px 6px); }.print-stage-asleep_deep { background-color: #2563eb; background-image: repeating-linear-gradient(90deg, #ffffffaa 0 2px, transparent 2px 6px); }.print-stage-asleep_unspecified { background-color: #94a3b8; background-image: radial-gradient(#ffffffcc 1px, transparent 1px); background-size: 5px 5px; }.print-stage-asleep { background-color: #94a3b8; background-image: repeating-linear-gradient(45deg, #ffffffaa 0 1px, transparent 1px 5px); }
+.print-timeline-labels { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; padding: 0; list-style: none; font-size: .72rem; }.print-timeline-labels li { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }.print-timeline-labels strong { font-weight: 700; }.print-timeline-labels span { color: #53606b; }
+.print-legend { font-size: .75rem; }.print-relation { border: 1px dashed #536d82; padding: 10px; margin: 12px 0; }.print-relation span { margin: 0 8px; }.print-relation p { margin: 6px 0 0; }
+.print-block-table { width: 100%; border-collapse: collapse; font-size: .8rem; }.print-block-table th, .print-block-table td { border: 1px solid #8896a3; padding: 6px; text-align: left; }.print-block-table th { background: #e9edf1; }.print-empty { padding: 40px 0; text-align: center; }
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  body { background: white !important; }.no-print, .app-header, .screen-tabs { display: none !important; }
+  .print-preview-screen { padding: 0; background: white; }.print-report { max-width: none; padding: 0; box-shadow: none; }
+  .print-day-card { break-inside: avoid; page-break-inside: avoid; }.print-block-table thead { display: table-header-group; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.sleepcompass.api</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE_PATH__</string>
+    <string>--import</string><string>tsx</string>
+    <string>__PROJECT_DIR__/server/server.ts</string>
+  </array>
+  <key>WorkingDirectory</key><string>__PROJECT_DIR__</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>__PROJECT_DIR__/runtime-logs/mac-api.log</string>
+  <key>StandardErrorPath</key><string>__PROJECT_DIR__/runtime-logs/mac-api-error.log</string>
+</dict>
+</plist>

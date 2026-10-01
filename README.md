@@ -9,8 +9,32 @@ The Web application is local-first and does not use Firebase, Firebase Authentic
 For the scheduled Google Drive sync setup, see [O-10 Drive Auto Sync](docs/o10-drive-auto-sync.md).
 For the consolidated data import and sleep source settings screen, see [O-11 Data Import Screen Consolidation](docs/o11-data-import-screen-consolidation.md).
 For Tailscale URL coexistence and future URL changes, see [O-14 Tailscale URL Coexistence](docs/o14-tailscale-url-coexistence.md).
+For the planned Cloudflare and N100 Linux Live USB migration, see [O-15 Cloudflare / Live USB Migration Plan](docs/o15-cloudflare-live-usb-migration.md).
+For scoped runtime reads and the incremental Processor implementation, see [O-15b Validation and Implementation Results](docs/o15b-incremental-processing-validation.md).
+For the deferred N100-to-Mac mini migration, start with [Mac mini Migration Handoff](docs/o15-mac-mini-migration-handoff.md), including the configuration and LaunchAgent templates. The migration has not been executed.
 
 ## Local Web operation
+
+For a production build behind a private access gateway, run `npm run build` and then
+`npm run serve:production` alongside `npm run server`. The production Web server binds
+only to `127.0.0.1:5180`, serves `dist`, and forwards same-origin `/api` requests to
+`127.0.0.1:8787`. Set `SLEEP_COMPASS_WEB_PORT` if port 5180 is unavailable. Port
+4173 is reserved for Moonlight Bamboo!! on this host. For domain-free remote
+access, the Cloudflare Worker in `cloudflare/worker.mjs` uses a Workers VPC
+Service to reach the local Web port and requires Cloudflare Access identity.
+See [O-15 Cloudflare deployment progress](docs/o15-cloudflare-deployment-progress.md).
+
+On the current Windows host, keep the production Web available after logon with:
+
+```powershell
+npm run build
+powershell -ExecutionPolicy Bypass -File .\scripts\install-production-web-task.ps1 -StartNow
+$env:SLEEP_COMPASS_WEB_URL = 'http://127.0.0.1:5180'
+npm run runtime:check
+```
+
+The task is separate from the existing local API/Vite task. Remove it with
+`scripts/uninstall-production-web-task.ps1` if the Cloudflare route is retired.
 
 Start the Web application and its local API together before opening the Tailscale URL:
 

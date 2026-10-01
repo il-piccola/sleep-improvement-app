@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import './App.css'
 import sampleSleepData from './sample/anonymized-sleep-records.json'
 import { HealthAutoExportImportPanel } from './components/HealthAutoExportImportPanel'
+import { PrintLayoutPreview } from './components/PrintLayoutPreview'
+import type { PrintMode, PrintReportKind } from './lib/print/sleepPrint'
 import type { HealthAutoExportImportResult } from './lib/importers/importTypes'
 import { buildSleepBlocks } from './lib/analysis/buildSleepBlocks'
 import { groupBySleepDay } from './lib/analysis/groupBySleepDay'
@@ -91,6 +93,10 @@ type SleepDataFile = {
 
 type LocalImportStatus = {
   connected: boolean
+  dataVersion?: string | null
+  generatedAt?: string | null
+  snapshotId?: string | null
+  processedDataSnapshotId?: string | null
   isWatching?: boolean
   watchDir?: string
   scanIntervalMs?: number
@@ -208,7 +214,11 @@ type DriveSyncStatusPayload = {
 
 type SleepHealthContextPayload = {
   boundaryHour?: number
+  contextBoundaryHour?: number | null
+  boundaryMismatch?: boolean
+  dataVersion?: string | null
   days?: SleepHealthDailyContextView[]
+  snapshotId?: string | null
 }
 
 type SleepHealthContextState = {
@@ -254,6 +264,11 @@ function App() {
   const [sleepHealthContext, setSleepHealthContext] = useState<SleepHealthContextState>({
     days: [],
   })
+  const [printReport, setPrintReport] = useState<{ kind: PrintReportKind; mode: PrintMode; outputAt: string } | null>(null)
+  const scopedDataCacheRef = useRef(new Map<string, ScopedSleepData>())
+  const scopedDataRequestsRef = useRef(new Map<string, Promise<ScopedSleepData>>())
+  const snapshotIdRef = useRef<string | null>(null)
+  const hasSnapshotIdRef = useRef(false)
 
   const analysis = useMemo(() => {
     const rawBlocks = buildSleepBlocks(sleepData.records, config)
@@ -316,42 +331,174 @@ function App() {
     saveStoredSourcePreferences(sourcePreferences)
   }, [sourcePreferences])
 
+  const activeDataRange = useMemo<SleepDataRange>(() => {
+    const monthScreen = activeScreen === 'timeline' || activeScreen === 'fragmentation' || printReport !== null
+    return monthScreen
+      ? { kind: 'month', month: selectedTimelineMonth, boundaryHour: config.sleepDayBoundaryHour }
+      : { kind: 'days', days: 31, boundaryHour: config.sleepDayBoundaryHour }
+  }, [activeScreen, config.sleepDayBoundaryHour, printReport, selectedTimelineMonth])
+  const activeDataRangeKey = getSleepDataRangeKey(activeDataRange)
+
+  const loadScopedSleepData = useCallback(async (range: SleepDataRange, expectedSnapshotId?: string | null, force = false) => {
+    const cacheKey = getSleepDataRangeKey(range)
+    const cached = scopedDataCacheRef.current.get(cacheKey)
+    const snapshotMatches = expectedSnapshotId === undefined || cached?.snapshotId === expectedSnapshotId
+    if (!force && cached && snapshotMatches) {
+      if (range.kind === 'days') {
+        setSleepHealthContext(cached.sleepHealthContext)
+      }
+      return cached
+    }
+
+    const inFlight = scopedDataRequestsRef.current.get(cacheKey)
+    if (inFlight && !force) {
+      const result = await inFlight
+      if (expectedSnapshotId === undefined || result.snapshotId === expectedSnapshotId) {
+        return result
+      }
+    }
+
+    if (range.kind === 'days') {
+      setSleepHealthContext((current) => ({ ...current, loading: true, error: null }))
+    }
+
+    const request = fetchScopedServerData(range)
+      .then((result) => {
+        const resolvedSnapshotId = result.snapshotId ?? expectedSnapshotId ?? null
+        if (
+          hasSnapshotIdRef.current &&
+          snapshotIdRef.current !== null &&
+          resolvedSnapshotId !== snapshotIdRef.current
+        ) {
+          if (
+            resolvedSnapshotId !== null &&
+            isNewerDataVersion(resolvedSnapshotId, snapshotIdRef.current)
+          ) {
+            snapshotIdRef.current = resolvedSnapshotId
+            scopedDataCacheRef.current.clear()
+          } else {
+            throw new Error('新しいデータ版が公開されたため、古い応答を破棄しました。')
+          }
+        }
+        const entry = { ...result, snapshotId: resolvedSnapshotId }
+        scopedDataCacheRef.current.set(cacheKey, entry)
+
+        if (!hasSnapshotIdRef.current) {
+          hasSnapshotIdRef.current = true
+          snapshotIdRef.current = resolvedSnapshotId
+        }
+
+        if (range.kind === 'days') {
+          setSleepHealthContext(entry.sleepHealthContext)
+        }
+
+        setSleepData((current) => ({
+          ...current,
+          generatedAt: entry.generatedAt ?? current.generatedAt,
+          sourceKind: 'health_auto_export_json',
+          records: mergeScopedRecords(scopedDataCacheRef.current, snapshotIdRef.current, hasSnapshotIdRef.current),
+          warnings: mergeScopedWarnings(scopedDataCacheRef.current, snapshotIdRef.current, hasSnapshotIdRef.current),
+        }))
+        setFileStatus('ローカル自動取り込みサーバーから最新データを取得しました')
+        return entry
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : '睡眠データを取得できませんでした。'
+        if (range.kind === 'days' && !message.includes('古い応答を破棄')) {
+          setSleepHealthContext({
+            days: [],
+            error: message,
+            loading: false,
+          })
+        }
+        throw error
+      })
+      .finally(() => {
+        if (scopedDataRequestsRef.current.get(cacheKey) === request) {
+          scopedDataRequestsRef.current.delete(cacheKey)
+        }
+      })
+
+    scopedDataRequestsRef.current.set(cacheKey, request)
+    return request
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
-    const refresh = async () => {
-      const result = await fetchLocalServerData()
-
+    const refreshLightweight = async () => {
+      const result = await fetchLightweightLocalServerData()
       if (cancelled) {
         return
       }
 
       setLocalImportStatus(result.status)
-      setDriveSyncStatus(result.driveSyncStatus ?? null)
-      setSleepHealthContext(result.sleepHealthContext ?? { days: [] })
+      setDriveSyncStatus(result.driveSyncStatus)
+      if (!result.status.connected) {
+        return
+      }
 
-      if (result.records.length > 0) {
-        setSleepData({
-          generatedAt: result.generatedAt ?? result.status.latestImport?.importedAt,
-          sourceKind: 'health_auto_export_json',
-          inputFileName: result.status.latestImport?.importedFileName,
-          records: result.records,
-          warnings: result.warnings,
-        })
-        setFileStatus('ローカル自動取り込みサーバーから最新データを取得しました')
+      const nextSnapshotId = result.snapshotId
+      const snapshotChanged = !hasSnapshotIdRef.current || snapshotIdRef.current !== nextSnapshotId
+      if (!snapshotChanged) {
+        return
+      }
+
+      hasSnapshotIdRef.current = true
+      snapshotIdRef.current = nextSnapshotId
+      try {
+        const topRange: SleepDataRange = {
+          kind: 'days',
+          days: 31,
+          boundaryHour: config.sleepDayBoundaryHour,
+        }
+        const topEntry = await loadScopedSleepData(topRange, nextSnapshotId)
+        if (activeDataRange.kind === 'month') {
+          const month = timelineMonthPinned
+            ? activeDataRange.month
+            : getLatestMonthForRecords(topEntry.records, config) ?? activeDataRange.month
+          await loadScopedSleepData({
+            kind: 'month',
+            month,
+            boundaryHour: config.sleepDayBoundaryHour,
+          }, nextSnapshotId)
+        }
+      } catch {
+        // The status indicator remains available even while the scoped data request fails.
       }
     }
 
-    void refresh()
+    void refreshLightweight()
     const timer = window.setInterval(() => {
-      void refresh()
+      void refreshLightweight()
     }, 60_000)
 
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [config.sleepDayBoundaryHour])
+  }, [activeDataRange, config, loadScopedSleepData, timelineMonthPinned])
+
+  useEffect(() => {
+    void loadScopedSleepData(activeDataRange, snapshotIdRef.current)
+      .catch(() => undefined)
+  }, [activeDataRangeKey, loadScopedSleepData, activeDataRange])
+
+  useEffect(() => {
+    if (activeScreen !== 'diagnosis' && activeScreen !== 'import') {
+      return
+    }
+
+    let cancelled = false
+    void fetchDetailedImportStatus().then((status) => {
+      if (!cancelled) {
+        setLocalImportStatus(status)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeScreen])
 
   const handleFileChange = async (file: File | undefined) => {
     if (!file) {
@@ -407,17 +554,30 @@ function App() {
   const handleLocalRescan = async () => {
     const status = await requestLocalRescan()
     setLocalImportStatus(status)
-    const result = await fetchLocalServerData()
-    setLocalImportStatus(result.status)
-    if (result.records.length > 0) {
-      setSleepData({
-        generatedAt: result.generatedAt ?? result.status.latestImport?.importedAt,
-        sourceKind: 'health_auto_export_json',
-        inputFileName: result.status.latestImport?.importedFileName,
-        records: result.records,
-        warnings: result.warnings,
-      })
+    const nextSnapshotId = status.snapshotId ?? status.processedDataSnapshotId ?? null
+    hasSnapshotIdRef.current = true
+    snapshotIdRef.current = nextSnapshotId
+    scopedDataCacheRef.current.clear()
+    try {
+      const topRange: SleepDataRange = {
+        kind: 'days',
+        days: 31,
+        boundaryHour: config.sleepDayBoundaryHour,
+      }
+      const topEntry = await loadScopedSleepData(topRange, nextSnapshotId, true)
+      if (activeDataRange.kind === 'month') {
+        const month = timelineMonthPinned
+          ? activeDataRange.month
+          : getLatestMonthForRecords(topEntry.records, config) ?? activeDataRange.month
+        await loadScopedSleepData({
+          kind: 'month',
+          month,
+          boundaryHour: config.sleepDayBoundaryHour,
+        }, nextSnapshotId, true)
+      }
       setFileStatus('手動再スキャンで最新データを取得しました')
+    } catch {
+      // The status response already contains the rescan error for the diagnosis view.
     }
   }
 
@@ -491,7 +651,19 @@ function App() {
         />
       )}
 
-      {activeScreen === 'timeline' && (
+      {printReport ? (
+        <PrintLayoutPreview
+          config={config}
+          kind={printReport.kind}
+          mode={printReport.mode}
+          month={selectedTimelineMonth}
+          onBack={() => setPrintReport(null)}
+          onModeChange={(mode) => setPrintReport((current) => current ? { ...current, mode } : current)}
+          outputAt={printReport.outputAt}
+          summaries={monthVisibleSummaries}
+          timelineView={timelineView}
+        />
+      ) : activeScreen === 'timeline' && (
         <SleepTimeline
           config={config}
           latestAvailableMonth={latestAvailableMonth}
@@ -501,10 +673,11 @@ function App() {
           summaries={monthVisibleSummaries}
           timelineView={timelineView}
           onTimelineViewChange={setTimelineView}
+          onPrint={() => setPrintReport({ kind: 'timeline', mode: 'compact', outputAt: new Date().toISOString() })}
         />
       )}
 
-      {activeScreen === 'fragmentation' && (
+      {!printReport && activeScreen === 'fragmentation' && (
         <FragmentationDetail
           config={config}
           latestAvailableMonth={latestAvailableMonth}
@@ -514,6 +687,7 @@ function App() {
           summaries={monthVisibleSummaries}
           timelineView={timelineView}
           onTimelineViewChange={setTimelineView}
+          onPrint={() => setPrintReport({ kind: 'fragmentation', mode: 'compact', outputAt: new Date().toISOString() })}
         />
       )}
 
@@ -573,62 +747,182 @@ function toSleepDataFile(result: HealthAutoExportImportResult): SleepDataFile {
   }
 }
 
-async function fetchLocalServerData(): Promise<{
-  generatedAt?: string
-  driveSyncStatus?: DriveSyncStatusPayload | null
-  records: SleepRecord[]
-  sleepHealthContext?: SleepHealthContextState
-  warnings: string[]
+function getSleepDataRangeKey(range: SleepDataRange): string {
+  return range.kind === 'days'
+    ? `days:${range.days}:boundary:${range.boundaryHour}`
+    : `month:${range.month}:boundary:${range.boundaryHour}`
+}
+
+function buildSleepDataRangeQuery(range: SleepDataRange): string {
+  const params = new URLSearchParams({ boundaryHour: String(range.boundaryHour) })
+  if (range.kind === 'days') {
+    params.set('days', String(range.days))
+  } else {
+    params.set('month', range.month)
+  }
+  return params.toString()
+}
+
+async function fetchScopedServerData(range: SleepDataRange): Promise<ScopedSleepData> {
+  return fetchScopedServerDataAttempt(range, 0)
+}
+
+async function fetchScopedServerDataAttempt(
+  range: SleepDataRange,
+  attempt: number,
+): Promise<ScopedSleepData> {
+  const query = buildSleepDataRangeQuery(range)
+  const [recordsResponse, contextResponse] = await Promise.all([
+    fetch(`${LOCAL_IMPORT_SERVER_URL}/api/health-records?${query}`, { cache: 'no-store' }),
+    range.kind === 'days'
+      ? fetch(`${LOCAL_IMPORT_SERVER_URL}/api/sleep-health-context?${query}`, { cache: 'no-store' })
+      : Promise.resolve(null),
+  ])
+
+  if (!recordsResponse.ok) {
+    throw new Error('ローカル自動取り込みサーバーに接続できません。')
+  }
+
+  const recordsPayload = (await recordsResponse.json()) as {
+    generatedAt?: string
+    records?: SleepRecord[]
+    warnings?: string[]
+    snapshotId?: string | null
+    dataVersion?: string | null
+  }
+  const contextPayload = contextResponse?.ok
+    ? (await contextResponse.json()) as SleepHealthContextPayload
+    : null
+  const recordsVersion = recordsPayload.dataVersion ?? recordsPayload.snapshotId ?? null
+  const contextVersion = contextPayload?.dataVersion ?? contextPayload?.snapshotId ?? recordsVersion
+
+  if (recordsVersion !== contextVersion && attempt < 2) {
+    return fetchScopedServerDataAttempt(range, attempt + 1)
+  }
+  if (recordsVersion !== contextVersion) {
+    throw new Error('睡眠記録と健康指標のデータ版が一致しません。')
+  }
+  const contextBoundaryMatches =
+    !contextPayload?.boundaryMismatch &&
+    (contextPayload?.contextBoundaryHour ?? contextPayload?.boundaryHour ?? range.boundaryHour) === range.boundaryHour
+
+  return {
+    generatedAt: recordsPayload.generatedAt,
+    records: Array.isArray(recordsPayload.records) ? recordsPayload.records : [],
+    snapshotId: recordsVersion,
+    sleepHealthContext: {
+      days: contextBoundaryMatches && Array.isArray(contextPayload?.days) ? contextPayload.days : [],
+      error: contextBoundaryMatches ? null : '睡眠日の境界設定が変わったため、健康指標は再処理後に表示します。',
+      loading: false,
+    },
+    warnings: Array.isArray(recordsPayload.warnings) ? recordsPayload.warnings : [],
+  }
+}
+
+async function fetchImportStatus(compact: boolean): Promise<LocalImportStatus> {
+  const query = compact ? '?compact=1' : ''
+  const response = await fetch(`${LOCAL_IMPORT_SERVER_URL}/api/import-status${query}`, { cache: 'no-store' })
+  if (!response.ok) {
+    throw new Error('ローカル自動取り込みサーバーに接続できません。')
+  }
+
+  const payload = (await response.json()) as Omit<LocalImportStatus, 'connected'>
+  return {
+    ...payload,
+    connected: true,
+    snapshotId:
+      payload.dataVersion ??
+      payload.snapshotId ??
+      payload.processedDataSnapshotId ??
+      (payload.generatedAt ? `legacy:${payload.generatedAt}` : null),
+  }
+}
+
+async function fetchLightweightLocalServerData(): Promise<{
+  driveSyncStatus: DriveSyncStatusPayload | null
+  snapshotId: string | null
   status: LocalImportStatus
 }> {
   try {
-    const [recordsResponse, statusResponse, sleepHealthContextResponse, driveStatusResponse] = await Promise.all([
-      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/health-records`, { cache: 'no-store' }),
-      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/import-status`, { cache: 'no-store' }),
-      fetch(`${LOCAL_IMPORT_SERVER_URL}/api/sleep-health-context`, { cache: 'no-store' }),
+    const [statusResult, driveStatusResponse] = await Promise.all([
+      fetchImportStatus(true),
       fetch(`${LOCAL_IMPORT_SERVER_URL}/api/drive-sync-status`, { cache: 'no-store' }),
     ])
-
-    if (!recordsResponse.ok || !statusResponse.ok) {
-      throw new Error('ローカル自動取り込みサーバーに接続できません。')
-    }
-
-    const recordsPayload = (await recordsResponse.json()) as {
-      generatedAt?: string
-      records?: SleepRecord[]
-      warnings?: string[]
-    }
-    const statusPayload = (await statusResponse.json()) as Omit<LocalImportStatus, 'connected'>
-    const sleepHealthContext = sleepHealthContextResponse.ok
-      ? ((await sleepHealthContextResponse.json()) as SleepHealthContextPayload)
-      : null
     const driveSyncStatus = driveStatusResponse.ok
       ? ((await driveStatusResponse.json()) as DriveSyncStatusPayload)
       : null
-
     return {
-      generatedAt: recordsPayload.generatedAt,
       driveSyncStatus,
-      records: Array.isArray(recordsPayload.records) ? recordsPayload.records : [],
-      sleepHealthContext: {
-        days: Array.isArray(sleepHealthContext?.days) ? sleepHealthContext.days : [],
-        error: null,
-      },
-      warnings: Array.isArray(recordsPayload.warnings) ? recordsPayload.warnings : [],
-      status: {
-        ...statusPayload,
-        connected: true,
-      },
+      snapshotId: statusResult.snapshotId ?? statusResult.processedDataSnapshotId ?? null,
+      status: statusResult,
     }
-  } catch {
+  } catch (error) {
     return {
-      records: [],
-      warnings: [],
+      driveSyncStatus: null,
+      snapshotId: null,
       status: {
         connected: false,
+        lastError: error instanceof Error ? error.message : 'ローカル自動取り込みサーバーに接続できません。',
       },
     }
   }
+}
+
+async function fetchDetailedImportStatus(): Promise<LocalImportStatus> {
+  try {
+    return await fetchImportStatus(false)
+  } catch (error) {
+    return {
+      connected: false,
+      lastError: error instanceof Error ? error.message : 'ローカル自動取り込みサーバーに接続できません。',
+    }
+  }
+}
+
+function mergeScopedRecords(
+  cache: Map<string, ScopedSleepData>,
+  currentSnapshotId: string | null,
+  hasSnapshotId: boolean,
+): SleepRecord[] {
+  const records = new Map<string, SleepRecord>()
+  for (const entry of cache.values()) {
+    if (hasSnapshotId && entry.snapshotId !== currentSnapshotId) {
+      continue
+    }
+    for (const record of entry.records) {
+      records.set(record.id, record)
+    }
+  }
+  return [...records.values()]
+}
+
+function mergeScopedWarnings(
+  cache: Map<string, ScopedSleepData>,
+  currentSnapshotId: string | null,
+  hasSnapshotId: boolean,
+): string[] {
+  const warnings = new Set<string>()
+  for (const entry of cache.values()) {
+    if (hasSnapshotId && entry.snapshotId !== currentSnapshotId) {
+      continue
+    }
+    for (const warning of entry.warnings) {
+      warnings.add(warning)
+    }
+  }
+  return [...warnings]
+}
+
+function isNewerDataVersion(candidate: string, current: string): boolean {
+  return candidate.localeCompare(current) > 0
+}
+
+function getLatestMonthForRecords(records: SleepRecord[], config: AnalysisConfig): string | null {
+  const blocks = buildSleepBlocks(records, config)
+  const groups = groupBySleepDay(blocks, config)
+  const summaries = groups.map((group) => summarizeSleepDay(group, config))
+  const latest = sortSleepSummariesDesc(summaries)[0]
+  return latest ? getMonthKeyFromSleepDayKey(latest.sleepDayKey) : null
 }
 
 async function requestLocalRescan(): Promise<LocalImportStatus> {
@@ -642,10 +936,13 @@ async function requestLocalRescan(): Promise<LocalImportStatus> {
       throw new Error('再スキャンに失敗しました。')
     }
 
-    const payload = (await response.json()) as Omit<LocalImportStatus, 'connected'>
+    const payload = (await response.json()) as Omit<LocalImportStatus, 'connected'> & {
+      processedData?: { snapshotId?: string | null } | null
+    }
     return {
       ...payload,
       connected: true,
+      snapshotId: payload.snapshotId ?? payload.processedData?.snapshotId ?? payload.processedDataSnapshotId ?? null,
     }
   } catch (error) {
     return {
@@ -1762,6 +2059,7 @@ function SleepTimeline({
   selectedMonth,
   summaries,
   timelineView,
+  onPrint,
 }: {
   config: AnalysisConfig
   latestAvailableMonth: string | null
@@ -1771,6 +2069,7 @@ function SleepTimeline({
   selectedMonth: string
   summaries: SleepDaySummary[]
   timelineView: TimelineViewMode
+  onPrint: () => void
 }) {
   const scaleLabels = getSleepDayBoundaryScaleLabels(config.sleepDayBoundaryHour)
   const scaleText = scaleLabels.join(' / ')
@@ -1784,6 +2083,7 @@ function SleepTimeline({
           description={`${formatSleepDayBoundaryWindowLabel(config.sleepDayBoundaryHour)}の24時間バーで、主睡眠・仮眠・補助睡眠の並びを確認します。`}
         />
         <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+        <button className="secondary-button no-print" onClick={onPrint} type="button">印刷用レイアウトを表示</button>
         <MonthSelector
           latestAvailableMonth={latestAvailableMonth}
           monthStatus={monthStatus}
@@ -1808,6 +2108,7 @@ function SleepTimeline({
         description="日ごとの24時間バーを縦に並べています。細かいブロック一覧は各日の詳細から確認できます。"
       />
       <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+      <button className="secondary-button no-print" onClick={onPrint} type="button">印刷用レイアウトを表示</button>
       <MonthSelector
         latestAvailableMonth={latestAvailableMonth}
         monthStatus={monthStatus}
@@ -1896,6 +2197,7 @@ function FragmentationDetail({
   selectedMonth,
   summaries,
   timelineView,
+  onPrint,
 }: {
   config: AnalysisConfig
   latestAvailableMonth: string | null
@@ -1905,6 +2207,7 @@ function FragmentationDetail({
   selectedMonth: string
   summaries: SleepDaySummary[]
   timelineView: TimelineViewMode
+  onPrint: () => void
 }) {
   return (
     <section className="stack">
@@ -1914,6 +2217,7 @@ function FragmentationDetail({
         description="睡眠が何回に分かれているか、どのブロックを主睡眠候補として見ているかを確認します。"
       />
       <DataViewToggle value={timelineView} onChange={onTimelineViewChange} />
+      <button className="secondary-button no-print" onClick={onPrint} type="button">印刷用レイアウトを表示</button>
       <MonthSelector
         latestAvailableMonth={latestAvailableMonth}
         monthStatus={monthStatus}
@@ -2265,6 +2569,18 @@ function Settings({
       </Panel>
     </section>
   )
+}
+
+type SleepDataRange =
+  | { kind: 'days'; days: 31; boundaryHour: number }
+  | { kind: 'month'; month: string; boundaryHour: number }
+
+type ScopedSleepData = {
+  snapshotId: string | null
+  generatedAt?: string
+  records: SleepRecord[]
+  warnings: string[]
+  sleepHealthContext: SleepHealthContextState
 }
 
 function SourceSettings({

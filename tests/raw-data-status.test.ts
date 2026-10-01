@@ -28,5 +28,7 @@ assert.equal(
 assert.equal(assessProcessedDataFreshness({ ...raw, fileCount: 3 }, processed).reason, 'raw_file_count_differs')
 assert.equal(assessProcessedDataFreshness(raw, null).status, 'no_snapshot')
 assert.equal(assessProcessedDataFreshness({ fileCount: 0, latestFileName: null, latestModifiedAt: null }, processed).status, 'no_raw_data')
+assert.equal(assessProcessedDataFreshness(raw, processed, 'Drive mount unavailable').reason, 'raw_status_unavailable')
+assert.equal(assessProcessedDataFreshness(raw, processed, 'Drive mount unavailable').status, 'stale')
 
 console.log('raw data status tests passed')

@@ -4,8 +4,13 @@ import { loadHealthStore, loadHealthStoreWithStatus } from './healthStore.ts'
 import { createHealthExportWatcher } from './watchHealthExports.ts'
 import { loadProcessedFiles } from './processedFiles.ts'
 import {
-  buildProcessedSleepHealthContext,
+  filterProcessedRecords,
+  filterProcessedSleepHealthContext,
+  getSleepDayKeyForRecord,
   loadLatestProcessedData,
+  parseProcessedDataQuery,
+  type ProcessedDataQuery,
+  type ProcessedDataRange,
 } from './processedData.ts'
 import { publishLocalProcessedData } from './localProcessedData.ts'
 import {
@@ -70,24 +75,53 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/health-records') {
       const processed = await loadLatestProcessedData(config.processedDataDir)
+      const queryResult = parseProcessedDataQuery(
+        url.searchParams,
+        processed?.processingConfig.sleepDayBoundaryHour ?? 18,
+      )
+      if (queryResult.query === null) {
+        sendJson(response, { error: queryResult.error }, 400)
+        return
+      }
       if (processed) {
+        const filtered = filterProcessedRecords(processed, queryResult.query)
         sendJson(response, {
           generatedAt: processed.generatedAt,
-          records: processed.records,
+          records: filtered.records,
           warnings: processed.warnings,
           latestImport: processed.latestImport,
           dataSource: 'processed_data',
           snapshotId: processed.snapshotId,
+          dataVersion: processed.snapshotId,
+          range: filtered.range,
         })
         return
       }
 
       const store = await loadHealthStore(config.dataDir)
+      const legacyQuery = queryResult.query
+      const legacyRecords = legacyQuery.month === null && legacyQuery.days === null
+        ? store.records
+        : filterLegacyRecords(store.records, legacyQuery)
+      const legacySleepDays = selectLegacySleepDays(store.records, legacyQuery)
       sendJson(response, {
         generatedAt: store.generatedAt,
-        records: store.records,
+        records: legacyRecords,
         warnings: store.warnings,
         latestImport: store.latestImport,
+        dataSource: 'legacy_health_store',
+        snapshotId: null,
+        dataVersion: store.generatedAt ?? null,
+        range: {
+          type: legacyQuery.month !== null ? 'month' : legacyQuery.days !== null ? 'days' : 'all',
+          month: legacyQuery.month,
+          days: legacyQuery.days,
+          boundaryHour: legacyQuery.boundaryHour,
+          sleepDayCount: legacySleepDays.length,
+          firstSleepDay: legacySleepDays.at(-1) ?? null,
+          lastSleepDay: legacySleepDays[0] ?? null,
+          recordCount: legacyRecords.length,
+        },
       })
       return
     }
@@ -116,10 +150,42 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/import-status') {
       const processed = await loadLatestProcessedData(config.processedDataDir)
-      const store = await loadHealthStoreWithStatus(config.dataDir)
-      const processedFiles = await loadProcessedFiles(config.dataDir, config.watchDir)
+      const compact = url.searchParams.get('compact') === '1'
+      // The compact polling path only needs legacy state when no completed
+      // processed snapshot is available. Avoid rereading the large legacy
+      // store on every status poll once processed data is active.
+      const store = processed && compact
+        ? null
+        : await loadHealthStoreWithStatus(config.dataDir)
       const raw = await getRawStatus()
-      const freshness = assessProcessedDataFreshness(raw, processed)
+      const freshness = assessProcessedDataFreshness(raw, processed, rawStatusError)
+
+      if (compact) {
+        sendJson(response, {
+          ...watcher.status,
+          watchEnabled: config.watchEnabled,
+          startupScanEnabled: config.startupScanEnabled,
+          latestImport: processed?.latestImport ?? store?.state.latestImport ?? null,
+          dataSource: processed ? 'processed_data' : 'legacy_health_store',
+          snapshotId: processed?.snapshotId ?? null,
+          dataVersion: processed?.snapshotId ?? store?.state.generatedAt ?? null,
+          processedDataSnapshotId: processed?.snapshotId ?? null,
+          generatedAt: processed?.generatedAt ?? store?.state.generatedAt ?? null,
+          processedDataGeneratedAt: processed?.generatedAt ?? null,
+          latestSleepDay: getLatestSleepDay(processed),
+          latestAvailableMonth: getLatestSleepDay(processed)?.slice(0, 7) ?? null,
+          rawFileCount: raw.fileCount,
+          latestRawFileName: raw.latestFileName,
+          latestRawFileModifiedAt: raw.latestModifiedAt,
+          rawStatusError,
+          processedDataFreshness: freshness.status,
+          processedDataStaleReason: freshness.reason,
+        })
+        return
+      }
+
+      const processedFiles = await loadProcessedFiles(config.dataDir, config.watchDir)
+      const fullStore = store!
       sendJson(response, {
         ...watcher.status,
         watchEnabled: config.watchEnabled,
@@ -132,14 +198,18 @@ const server = createServer(async (request, response) => {
         dataDir: config.dataDir,
         processedDataDir: config.processedDataDir,
         processedDataBackupDir: config.processedDataBackupDir,
-        healthStoreLoadStatus: store.status,
-        latestImport: processed?.latestImport ?? store.state.latestImport,
-        importHistory: store.state.importHistory,
+        healthStoreLoadStatus: fullStore.status,
+        latestImport: processed?.latestImport ?? fullStore.state.latestImport,
+        importHistory: fullStore.state.importHistory,
         processedFiles: processedFiles.files.slice(0, 20),
         processedFileCount: processedFiles.files.length,
         dataSource: processed ? 'processed_data' : 'legacy_health_store',
+        snapshotId: processed?.snapshotId ?? null,
+        dataVersion: processed?.snapshotId ?? fullStore.state.generatedAt ?? null,
         processedDataSnapshotId: processed?.snapshotId ?? null,
         processedDataGeneratedAt: processed?.generatedAt ?? null,
+        latestSleepDay: getLatestSleepDay(processed),
+        latestAvailableMonth: getLatestSleepDay(processed)?.slice(0, 7) ?? null,
         processedDataInputFileCount: processed?.inputFiles.length ?? 0,
         rawFileCount: raw.fileCount,
         latestRawFileName: raw.latestFileName,
@@ -206,11 +276,32 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/api/sleep-health-context') {
       const processed = await loadLatestProcessedData(config.processedDataDir)
+      const queryResult = parseProcessedDataQuery(
+        url.searchParams,
+        processed?.processingConfig.sleepDayBoundaryHour ?? 18,
+      )
+      if (queryResult.query === null) {
+        sendJson(response, { error: queryResult.error }, 400)
+        return
+      }
+      const filtered = processed
+        ? filterProcessedSleepHealthContext(processed, {
+            ...queryResult.query,
+            boundaryHour: processed.processingConfig.sleepDayBoundaryHour,
+          })
+        : { days: [], range: emptyRange(queryResult.query) }
       sendJson(response, {
-        boundaryHour: processed?.processingConfig.sleepDayBoundaryHour ?? 18,
-        days: processed ? buildProcessedSleepHealthContext(processed) : [],
+        boundaryHour: processed?.processingConfig.sleepDayBoundaryHour ?? queryResult.query.boundaryHour,
+        requestedBoundaryHour: queryResult.query.boundaryHour,
+        contextBoundaryHour: processed?.processingConfig.sleepDayBoundaryHour ?? null,
+        boundaryMismatch: processed
+          ? queryResult.query.boundaryHour !== processed.processingConfig.sleepDayBoundaryHour
+          : false,
+        days: filtered.days,
         dataSource: processed ? 'processed_data' : 'legacy_health_store',
         snapshotId: processed?.snapshotId ?? null,
+        dataVersion: processed?.snapshotId ?? null,
+        range: filtered.range,
       })
       return
     }
@@ -218,7 +309,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/drive-sync-status') {
       const processed = await loadLatestProcessedData(config.processedDataDir)
       const raw = await getRawStatus()
-      const freshness = assessProcessedDataFreshness(raw, processed)
+      const freshness = assessProcessedDataFreshness(raw, processed, rawStatusError)
       sendJson(response, {
         lastSyncAt: processed?.generatedAt ?? null,
         lastStatus: freshness.status === 'fresh' ? 'normal' : processed ? 'needs_attention' : 'not_synced',
@@ -284,6 +375,57 @@ function sendJson(response: ServerResponse, body: unknown, status = 200) {
   response.end(JSON.stringify(body))
 }
 
+function filterLegacyRecords(
+  records: Awaited<ReturnType<typeof loadHealthStore>>['records'],
+  query: ProcessedDataQuery,
+) {
+  const sleepDays = Array.from(new Set(records
+    .map((record) => getSleepDayKeyForRecord(record, 'Asia/Tokyo', query.boundaryHour))
+    .filter((value): value is string => Boolean(value))))
+    .sort((left, right) => right.localeCompare(left))
+  const selected = query.month !== null
+    ? new Set(sleepDays.filter((sleepDay) => sleepDay.startsWith(`${query.month}-`)))
+    : new Set(sleepDays.slice(0, query.days ?? sleepDays.length))
+
+  return records.filter((record) => {
+    const sleepDay = getSleepDayKeyForRecord(record, 'Asia/Tokyo', query.boundaryHour)
+    return sleepDay !== null && selected.has(sleepDay)
+  })
+}
+
+function selectLegacySleepDays(
+  records: Awaited<ReturnType<typeof loadHealthStore>>['records'],
+  query: ProcessedDataQuery,
+): string[] {
+  const sleepDays = Array.from(new Set(records
+    .map((record) => getSleepDayKeyForRecord(record, 'Asia/Tokyo', query.boundaryHour))
+    .filter((value): value is string => Boolean(value))))
+    .sort((left, right) => right.localeCompare(left))
+  if (query.month !== null) return sleepDays.filter((sleepDay) => sleepDay.startsWith(`${query.month}-`))
+  return query.days === null ? sleepDays : sleepDays.slice(0, query.days)
+}
+
+function emptyRange(query: ProcessedDataQuery): ProcessedDataRange {
+  return {
+    type: query.month !== null ? 'month' : query.days !== null ? 'days' : 'all',
+    month: query.month,
+    days: query.days,
+    boundaryHour: query.boundaryHour,
+    sleepDayCount: 0,
+    firstSleepDay: null,
+    lastSleepDay: null,
+    contextCount: 0,
+  }
+}
+
+function getLatestSleepDay(processed: Awaited<ReturnType<typeof loadLatestProcessedData>>): string | null {
+  if (!processed) return null
+  return processed.sleepDays
+    .map((day) => typeof day.sleepDay === 'string' ? day.sleepDay : null)
+    .filter((day): day is string => day !== null)
+    .sort((left, right) => right.localeCompare(left))[0] ?? null
+}
+
 async function reconcileProcessedData(): Promise<void> {
   const processed = await loadLatestProcessedData(config.processedDataDir).catch(() => null)
   const raw = await refreshRawStatus()
@@ -293,7 +435,7 @@ async function reconcileProcessedData(): Promise<void> {
     return
   }
 
-  const freshness = assessProcessedDataFreshness(raw, processed)
+  const freshness = assessProcessedDataFreshness(raw, processed, rawStatusError)
   if (freshness.status === 'stale') {
     await publishProcessedData()
   }
@@ -331,7 +473,7 @@ async function getRawStatus(): Promise<RawJsonFilesStatus> {
 async function buildRuntimeHealth() {
   const processed = await loadLatestProcessedData(config.processedDataDir).catch(() => null)
   const raw = await getRawStatus()
-  const freshness = assessProcessedDataFreshness(raw, processed)
+  const freshness = assessProcessedDataFreshness(raw, processed, rawStatusError)
   const watcherHealthy = !config.watchEnabled || (watcher.status.isWatching && !watcher.status.lastError)
   const healthy = watcherHealthy && freshness.status === 'fresh'
 

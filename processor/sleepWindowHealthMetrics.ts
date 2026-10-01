@@ -41,11 +41,26 @@ type WindowBucket = {
   sourceRowCount: number
 }
 
+type IndexedSleepBlock = {
+  block: ClassifiedProcessorSleepBlock
+  startMs: number
+  endMs: number
+}
+
+type SleepBlockTimeIndex = {
+  byUtcDay: Map<number, IndexedSleepBlock[]>
+  longBlocks: IndexedSleepBlock[]
+  allBlocks: IndexedSleepBlock[]
+}
+
 const TARGET_METRICS: SleepWindowMetricName[] = [
   'heart_rate',
   'respiratory_rate',
   'heart_rate_variability',
 ]
+
+const MILLISECONDS_PER_DAY = 86_400_000
+const MAX_INDEXED_DAY_SPAN = 7
 
 const METRIC_UNITS: Record<SleepWindowMetricName, ProcessorHealthMetricUnit> = {
   heart_rate: 'bpm',
@@ -71,6 +86,7 @@ export function aggregateProcessorSleepWindowHealthMetrics({
       Number.isFinite(Date.parse(block.end)) &&
       Date.parse(block.end) > Date.parse(block.start),
   )
+  const blockIndex = buildSleepBlockTimeIndex(usableBlocks)
 
   if (!metrics || usableBlocks.length === 0) {
     return {
@@ -111,9 +127,8 @@ export function aggregateProcessorSleepWindowHealthMetrics({
         continue
       }
 
-      for (const block of usableBlocks) {
-        const blockStart = Date.parse(block.start as string)
-        const blockEnd = Date.parse(block.end as string)
+      for (const indexed of findCandidateBlocks(blockIndex, point.startMs, point.endMs)) {
+        const { block, startMs: blockStart, endMs: blockEnd } = indexed
         if (!overlaps(point.startMs, point.endMs, blockStart, blockEnd)) continue
 
         const key = [metricName, block.blockId, point.sourceKey].join('|')
@@ -146,6 +161,58 @@ export function aggregateProcessorSleepWindowHealthMetrics({
     skippedMetricCount,
     rejectedRowCount,
   }
+}
+
+function buildSleepBlockTimeIndex(
+  blocks: ClassifiedProcessorSleepBlock[],
+): SleepBlockTimeIndex {
+  const byUtcDay = new Map<number, IndexedSleepBlock[]>()
+  const longBlocks: IndexedSleepBlock[] = []
+  const allBlocks = blocks.map((block) => ({
+    block,
+    startMs: Date.parse(block.start as string),
+    endMs: Date.parse(block.end as string),
+  }))
+
+  for (const indexed of allBlocks) {
+    const firstDay = toUtcDay(indexed.startMs)
+    const lastDay = toUtcDay(indexed.endMs)
+    if (lastDay - firstDay > MAX_INDEXED_DAY_SPAN) {
+      longBlocks.push(indexed)
+      continue
+    }
+
+    for (let day = firstDay; day <= lastDay; day += 1) {
+      const bucket = byUtcDay.get(day) ?? []
+      bucket.push(indexed)
+      byUtcDay.set(day, bucket)
+    }
+  }
+
+  return { allBlocks, byUtcDay, longBlocks }
+}
+
+function findCandidateBlocks(
+  index: SleepBlockTimeIndex,
+  startMs: number,
+  endMs: number,
+): IndexedSleepBlock[] {
+  const firstDay = toUtcDay(startMs)
+  const lastDay = toUtcDay(endMs)
+  if (lastDay - firstDay > MAX_INDEXED_DAY_SPAN) return index.allBlocks
+
+  const candidates = new Map<string, IndexedSleepBlock>()
+  for (const block of index.longBlocks) candidates.set(block.block.blockId, block)
+  for (let day = firstDay; day <= lastDay; day += 1) {
+    for (const block of index.byUtcDay.get(day) ?? []) {
+      candidates.set(block.block.blockId, block)
+    }
+  }
+  return Array.from(candidates.values())
+}
+
+function toUtcDay(value: number): number {
+  return Math.floor(value / MILLISECONDS_PER_DAY)
 }
 
 export function getProcessorSleepWindowHealthMetricTargetMetrics(): SleepWindowMetricName[] {

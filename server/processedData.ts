@@ -10,6 +10,10 @@ import {
   type HealthStoreAnalysis,
   type HealthStoreImportStats,
 } from './healthStore.ts'
+import {
+  formatDateInTimeZone,
+  parseHealthDateInTimeZone,
+} from '../processor/time.ts'
 
 export type ProcessedDataRuntime = {
   snapshotId: string
@@ -39,10 +43,51 @@ export type ProcessedSleepHealthContext = {
   }
 }
 
+export type ProcessedDataQuery = {
+  month: string | null
+  days: number | null
+  boundaryHour: number
+}
+
+export type ProcessedDataRange = {
+  type: 'all' | 'month' | 'days'
+  month: string | null
+  days: number | null
+  boundaryHour: number
+  sleepDayCount: number
+  firstSleepDay: string | null
+  lastSleepDay: string | null
+  recordCount?: number
+  contextCount?: number
+}
+
+type RuntimeCacheEntry = {
+  snapshotId: string
+  runtime: ProcessedDataRuntime
+}
+
+const runtimeCache = new Map<string, RuntimeCacheEntry>()
+const runtimeLoadPromises = new Map<string, Promise<ProcessedDataRuntime | null>>()
+const recordSleepDayCache = new WeakMap<ProcessedDataRuntime, Map<number, Array<string | null>>>()
+
 export async function loadLatestProcessedData(
   processedDataRoot: string,
 ): Promise<ProcessedDataRuntime | null> {
-  const snapshotsRoot = join(resolve(processedDataRoot), 'snapshots')
+  const root = resolve(processedDataRoot)
+  const pending = runtimeLoadPromises.get(root)
+  if (pending) return pending
+
+  const loadPromise = loadLatestProcessedDataUncached(root).finally(() => {
+    runtimeLoadPromises.delete(root)
+  })
+  runtimeLoadPromises.set(root, loadPromise)
+  return loadPromise
+}
+
+async function loadLatestProcessedDataUncached(
+  processedDataRoot: string,
+): Promise<ProcessedDataRuntime | null> {
+  const snapshotsRoot = join(processedDataRoot, 'snapshots')
   let entries
 
   try {
@@ -63,7 +108,14 @@ export async function loadLatestProcessedData(
 
   for (const snapshotName of snapshotNames) {
     try {
-      return await readProcessedSnapshot(join(snapshotsRoot, snapshotName))
+      const cached = runtimeCache.get(processedDataRoot)
+      if (cached?.snapshotId === snapshotName) return cached.runtime
+
+      const runtime = await readProcessedSnapshot(join(snapshotsRoot, snapshotName))
+      // Completed snapshots are immutable. Replace the active entry atomically
+      // when a new completed snapshot becomes visible; .working is never read.
+      runtimeCache.set(processedDataRoot, { snapshotId: snapshotName, runtime })
+      return runtime
     } catch (error) {
       lastError = error
     }
@@ -72,6 +124,135 @@ export async function loadLatestProcessedData(
   throw new Error(
     `No valid completed processed-data snapshot: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
   )
+}
+
+export function parseProcessedDataQuery(
+  searchParams: URLSearchParams,
+  defaultBoundaryHour: number,
+): { query: ProcessedDataQuery; error: null } | { query: null; error: string } {
+  const monthValues = searchParams.getAll('month')
+  const daysValues = searchParams.getAll('days')
+  const boundaryValues = searchParams.getAll('boundaryHour')
+
+  if (monthValues.length > 1 || daysValues.length > 1 || boundaryValues.length > 1) {
+    return { query: null, error: 'month, days, and boundaryHour may only be specified once' }
+  }
+  if (monthValues.length > 0 && daysValues.length > 0) {
+    return { query: null, error: 'month and days are mutually exclusive' }
+  }
+
+  const month = monthValues[0] ?? null
+  if (month !== null && !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)) {
+    return { query: null, error: 'month must use YYYY-MM' }
+  }
+
+  const daysText = daysValues[0] ?? null
+  let days: number | null = null
+  if (daysText !== null) {
+    if (!/^[1-9]\d*$/.test(daysText)) {
+      return { query: null, error: 'days must be a positive integer' }
+    }
+    const parsed = Number(daysText)
+    if (!Number.isSafeInteger(parsed) || parsed < 1) {
+      return { query: null, error: 'days must be a safe positive integer' }
+    }
+    days = parsed
+  }
+
+  let boundaryHour = defaultBoundaryHour
+  const boundaryText = boundaryValues[0] ?? null
+  if (boundaryText !== null) {
+    if (!/^\d+$/.test(boundaryText) || Number(boundaryText) > 23) {
+      return { query: null, error: 'boundaryHour must be an integer from 0 to 23' }
+    }
+    boundaryHour = Number(boundaryText)
+  }
+
+  return { query: { month, days, boundaryHour }, error: null }
+}
+
+export function filterProcessedRecords(
+  runtime: ProcessedDataRuntime,
+  query: ProcessedDataQuery,
+): { records: SleepRecord[]; range: ProcessedDataRange } {
+  const recordSleepDays = getCachedRecordSleepDays(runtime, query.boundaryHour)
+  // Records are the source of truth for this endpoint. Using processor sleepDays
+  // here would mix the snapshot boundary with a caller supplied boundaryHour and
+  // can make a days=N range include keys with no matching records.
+  const availableSleepDays = getAvailableSleepDays([], recordSleepDays)
+  const selectedSleepDays = selectSleepDays(availableSleepDays, query)
+  const selected = new Set(selectedSleepDays)
+  const records = query.month === null && query.days === null
+    ? runtime.records
+    : runtime.records.filter((_, index) => {
+        const sleepDay = recordSleepDays[index]
+        return sleepDay !== null && selected.has(sleepDay)
+      })
+
+  return {
+    records,
+    range: createRange(query, selectedSleepDays, { recordCount: records.length }),
+  }
+}
+
+function getCachedRecordSleepDays(
+  runtime: ProcessedDataRuntime,
+  boundaryHour: number,
+): Array<string | null> {
+  let byBoundary = recordSleepDayCache.get(runtime)
+  if (!byBoundary) {
+    byBoundary = new Map()
+    recordSleepDayCache.set(runtime, byBoundary)
+  }
+
+  const cached = byBoundary.get(boundaryHour)
+  if (cached) return cached
+
+  const sleepDays = runtime.records.map((record) =>
+    getSleepDayKeyForRecord(record, runtime.processingConfig.timeZone, boundaryHour),
+  )
+  byBoundary.set(boundaryHour, sleepDays)
+  return sleepDays
+}
+
+export function filterProcessedSleepHealthContext(
+  runtime: ProcessedDataRuntime,
+  query: ProcessedDataQuery,
+): { days: ProcessedSleepHealthContext[]; range: ProcessedDataRange } {
+  const contexts = buildProcessedSleepHealthContext(runtime)
+  const availableSleepDays = contexts.map((context) => context.sleepDay)
+  const selectedSleepDays = selectSleepDays(availableSleepDays, query)
+  const selected = new Set(selectedSleepDays)
+  const days = query.month === null && query.days === null
+    ? contexts
+    : contexts.filter((context) => selected.has(context.sleepDay))
+
+  return {
+    days,
+    range: createRange(query, selectedSleepDays, { contextCount: days.length }),
+  }
+}
+
+export function getSleepDayKeyForRecord(
+  record: Pick<SleepRecord, 'start' | 'startDate' | 'end' | 'endDate'>,
+  timeZone: string,
+  boundaryHour: number,
+): string | null {
+  const value = record.start ?? record.startDate ?? record.end ?? record.endDate
+  if (!value) return null
+  const date = parseHealthDateInTimeZone(value, timeZone)
+  if (!date) return null
+  const localDate = formatDateInTimeZone(date, timeZone)
+  const localHour = Number(new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    hour12: false,
+  }).format(date)) % 24
+  if (localHour >= boundaryHour) return localDate
+
+  const previous = new Date(date.getTime())
+  previous.setUTCDate(previous.getUTCDate() - 1)
+  return formatDateInTimeZone(previous, timeZone)
 }
 
 async function readProcessedSnapshot(snapshotDir: string): Promise<ProcessedDataRuntime> {
@@ -294,6 +475,48 @@ function optionalString(value: unknown): string | null {
 
 function toNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function getAvailableSleepDays(
+  sleepDays: Array<Record<string, unknown>>,
+  recordSleepDays: Array<string | null>,
+): string[] {
+  return Array.from(new Set([
+    ...sleepDays.flatMap((day) => {
+      const value = optionalString(day.sleepDay)
+      return value ? [value] : []
+    }),
+    ...recordSleepDays.flatMap((day) => day ? [day] : []),
+  ])).sort((left, right) => right.localeCompare(left))
+}
+
+function selectSleepDays(
+  availableSleepDays: string[],
+  query: ProcessedDataQuery,
+): string[] {
+  const sorted = Array.from(new Set(availableSleepDays)).sort((left, right) => right.localeCompare(left))
+  if (query.month !== null) {
+    return sorted.filter((sleepDay) => sleepDay.startsWith(`${query.month}-`))
+  }
+  if (query.days !== null) return sorted.slice(0, query.days)
+  return sorted
+}
+
+function createRange(
+  query: ProcessedDataQuery,
+  selectedSleepDays: string[],
+  counts: { recordCount?: number; contextCount?: number },
+): ProcessedDataRange {
+  return {
+    type: query.month !== null ? 'month' : query.days !== null ? 'days' : 'all',
+    month: query.month,
+    days: query.days,
+    boundaryHour: query.boundaryHour,
+    sleepDayCount: selectedSleepDays.length,
+    firstSleepDay: selectedSleepDays[selectedSleepDays.length - 1] ?? null,
+    lastSleepDay: selectedSleepDays[0] ?? null,
+    ...counts,
+  }
 }
 
 function isMissing(error: unknown): boolean {

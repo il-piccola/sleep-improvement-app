@@ -7,6 +7,8 @@ type ZonedParts = {
   second: number
 }
 
+const zonedDateTimeFormatters = new Map<string, Intl.DateTimeFormat>()
+
 export function parseHealthDateInTimeZone(
   value: string | undefined,
   timeZone: string,
@@ -161,17 +163,22 @@ function getTimeZoneOffsetMinutes(instantMs: number, timeZone: string): number {
 }
 
 function getZonedParts(instantMs: number, timeZone: string): ZonedParts {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    hourCycle: 'h23',
-  }).formatToParts(new Date(instantMs))
+  let formatter = zonedDateTimeFormatters.get(timeZone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      hourCycle: 'h23',
+    })
+    zonedDateTimeFormatters.set(timeZone, formatter)
+  }
+  const parts = formatter.formatToParts(new Date(instantMs))
   const value = (type: 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second'): number =>
     Number(parts.find((part) => part.type === type)?.value)
 
